@@ -1,0 +1,6 @@
+.vscode
+.env
+
+volumes/db/data
+volumes/storage
+volumes/web/build
