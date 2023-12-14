@@ -218,7 +218,7 @@ services:
     # Giftamizer UI
     - name: web
       _comment: 'Giftamizer: /* -> http://localhost:3001/*'
-      url: http://192.168.1.30:3001/
+      url: $REACT_APP_URL
       routes:
           - name: web-all
             strip_path: true

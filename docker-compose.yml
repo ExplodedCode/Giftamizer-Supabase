@@ -70,8 +70,7 @@ services:
             KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
             SUPABASE_ANON_KEY: ${ANON_KEY}
             SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
-            DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
-            DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+            REACT_APP_URL: ${REACT_APP_URL}
         volumes:
             - ./volumes/api/kong.yml:/home/kong/temp.yml:ro
 
