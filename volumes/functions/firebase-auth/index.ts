@@ -1,7 +1,7 @@
 import 'https://deno.land/x/xhr@0.1.0/mod.ts';
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import axios from 'https://esm.sh/axios@1.4.0';
+import axiod from 'https://deno.land/x/axiod/mod.ts';
 
 serve(async (req) => {
 	const { email, password } = await req.json();
@@ -10,7 +10,7 @@ serve(async (req) => {
 
 	if (email && password) {
 		try {
-			const { data } = await axios.post('http://firebase-auth-middleware', {
+			const { data } = await axiod.post('http://firebase-auth-middleware', {
 				email: email,
 				password: password,
 			});
