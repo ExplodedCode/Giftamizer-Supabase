@@ -7,17 +7,13 @@ CREATE TABLE IF NOT EXISTS public.profiles
   first_name character varying(255) NOT NULL,
   last_name character varying(255) NOT NULL,
   bio text NOT NULL DEFAULT ''::text,
-  home text not null default '/'::text,
 
   enable_lists boolean NOT NULL DEFAULT false,
   enable_archive boolean NOT NULL DEFAULT false,
   enable_trash boolean NOT NULL DEFAULT false,
-  enable_snowfall boolean not null default false,
 
   email_promotional boolean NOT NULL DEFAULT true,
   email_invites boolean NOT NULL DEFAULT true,
-  
-  tour jsonb NOT NULL DEFAULT '{}'::jsonb,
 
   avatar_token numeric,
   created_at timestamp with time zone DEFAULT now(),
@@ -79,7 +75,7 @@ begin
   insert into public.lists (id, user_id, name) values ('default', new.id, 'Default');
   
   INSERT INTO group_members (group_id, user_id, owner, invite)
-    SELECT group_id, new.id as user_id, owner, true as invite FROM external_invites 
+    SELECT group_id, new.id as user_id, owner, false as invite FROM external_invites 
     WHERE email = new.email;
   DELETE FROM external_invites WHERE email = new.email;
   

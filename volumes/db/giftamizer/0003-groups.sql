@@ -4,14 +4,10 @@ CREATE TABLE IF NOT EXISTS public.groups
 (
   id uuid NOT NULL DEFAULT uuid_generate_v4() PRIMARY KEY,
   name text NOT NULL,
-
-  invite_link boolean NOT NULL DEFAULT true,
-
-  secret_santa jsonb NOT NULL DEFAULT '{"status": "init"}'::jsonb,
-
   image_token numeric,
   created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now()
+  updated_at timestamp with time zone DEFAULT now(),
+  fbid text null
 );
 create trigger handle_updated_at before update on groups
   for each row execute procedure moddatetime (updated_at);
@@ -275,46 +271,3 @@ AS $$
         (select count(*) from group_members g where g.group_id= groups.id and g.owner = true AND g.user_id <> cast(owner_id as uuid)) = 0;
 	end;
 $$;
-
---
--- get group and its members for link invite
-CREATE OR REPLACE FUNCTION get_link_invite(_group_id uuid) 
-RETURNS TABLE (
-  name text,
-  image_token numeric,
-  members jsonb
-) AS $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM groups WHERE id = _group_id AND invite_link = true) THEN
-    RAISE EXCEPTION 'Group invite does not exist!'; 
-  END IF;
-
-  RETURN QUERY 
-  SELECT g.name, g.image_token, jsonb_agg(jsonb_build_object('user_id', u.user_id, 'first_name', u.first_name, 'avatar_token', u.avatar_token))
-  FROM groups g
-  JOIN group_members gm ON g.id = gm.group_id
-  JOIN profiles u ON u.user_id = gm.user_id AND gm.invite = false
-  WHERE g.id = _group_id
-  GROUP BY g.name, g.image_token;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
---
--- Accept link invite
-CREATE OR REPLACE FUNCTION accept_link_invite(_group_id uuid, _user_id uuid) 
-RETURNS TABLE (
-  group_id uuid,
-  user_id uuid
-) AS $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM groups WHERE id = _group_id AND invite_link = true) THEN
-    RAISE EXCEPTION 'Group invite does not exist!'; 
-  END IF;
-
-  INSERT INTO group_members (group_id, user_id, owner, invite)
-  VALUES (_group_id, _user_id, false, false);
-
-  RETURN QUERY 
-  SELECT _group_id as group_id, _user_id as user_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;

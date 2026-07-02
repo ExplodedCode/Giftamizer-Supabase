@@ -1,21 +1,16 @@
 CREATE TABLE items (
-  id UUID DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL,
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES profiles(user_id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   description TEXT,
   links TEXT[] null,
-  domains text[] null,
   custom_fields jsonb null,
   archived boolean not null default false,
   deleted boolean not null default false,
-  shopping_item uuid null,
   image_token numeric,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-  constraint items_pkey primary key (id),
-  constraint items_user_id_fkey foreign key (user_id) references profiles (user_id) on delete cascade,
-  constraint items_shopping_item_fkey foreign key (shopping_item) references profiles (user_id)
+  fbid text null
 );
 create trigger handle_updated_at before update on items
   for each row execute procedure moddatetime (updated_at);
@@ -72,22 +67,13 @@ CREATE TABLE lists (
   name TEXT NOT NULL,
   child_list boolean NOT NULL DEFAULT false,
   bio text,
-  pinned boolean not null default false,
   avatar_token numeric,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  fbid text null,
   
   PRIMARY KEY (id, user_id)
 );
-
-CREATE OR REPLACE FUNCTION is_list_child(
-    _list_id text
-) RETURNS BOOLEAN AS
-$$
-SELECT(
-   SELECT child_list FROM lists WHERE lists.id = _list_id
-)
-$$ LANGUAGE SQL SECURITY DEFINER;
 
 -- Set up Storage
 insert into storage.buckets (id, name) values ('lists', 'lists');
@@ -298,10 +284,10 @@ create policy "Users can update own lists_groups"
   on lists_groups for update
   TO authenticated 
   using (user_id = auth.uid());
-create policy "Users or group owners can delete own lists_groups"
+create policy "Users can delete own lists_groups"
   on lists_groups for delete
   TO authenticated 
-  using (user_id = auth.uid() OR (is_group_owner(group_id, auth.uid()) AND is_list_child(list_id)));
+  using (user_id = auth.uid());
 -- Allow group members to select lists_groups
 CREATE POLICY "Group members can select lists_groups"
   ON lists_groups for select
@@ -315,40 +301,3 @@ CREATE POLICY "Group members can select lists_groups"
         AND group_members.group_id = lists_groups.group_id
     )
   );
-
-
---
--- link domains
-create table link_domains (
-  original text not null,
-  domain text not null,
-  constraint link_domains_pkey primary key (original)
-);
-
-
-CREATE FUNCTION public.get_link_domains() RETURNS trigger
-  LANGUAGE plpgsql AS $$
-DECLARE
-  domains text[];
-  links text[] := NEW.links;
-BEGIN
-  IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') AND array_length(links, 1) is not null  THEN
-
-    FOR i IN 1 .. array_upper(links, 1) LOOP
-      domains := domains || (
-        SELECT CASE WHEN link_domains.domain is null THEN replace(token, 'www.', '') ELSE link_domains.domain END as domain FROM ts_debug(links[i])
-        LEFT JOIN public.link_domains on replace(token, 'www.', '') = original
-        WHERE alias = 'host' limit 1
-      );
-    end loop;
-  END IF;
-
-  NEW.domains = domains;
-  RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER update_item_domains 
-BEFORE INSERT OR UPDATE ON public.items 
-FOR EACH ROW 
-EXECUTE FUNCTION public.get_link_domains();

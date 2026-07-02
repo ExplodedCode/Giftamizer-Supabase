@@ -55,8 +55,6 @@ CREATE TABLE system (
   
   FOREIGN KEY (updated_by) REFERENCES profiles(user_id)
 );
--- insert rows into system table
-INSERT into system (maintenance) values (false);
 
 create policy "Any one can view system"
   on system for select

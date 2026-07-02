@@ -1,6 +1,5 @@
-.vscode
-.env
-
 volumes/db/data
 volumes/storage
-volumes/web/build
+.env
+test.http
+docker-compose.override.yml
