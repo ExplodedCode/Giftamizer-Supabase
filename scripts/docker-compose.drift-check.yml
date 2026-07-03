@@ -1,0 +1,6 @@
+# Used only by scripts/check-schema-drift.sh. Overrides the db container name so
+# this can run safely alongside a normal local dev stack (which uses supabase-db)
+# without a container name collision.
+services:
+  db:
+    container_name: db-drift-check

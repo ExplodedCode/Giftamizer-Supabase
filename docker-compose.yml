@@ -461,8 +461,36 @@ services:
         "-c",
         "config_file=/etc/postgresql/postgresql.conf",
         "-c",
-        "log_min_messages=fatal" # prevents Realtime polling queries from appearing in logs
+        "log_min_messages=fatal", # prevents Realtime polling queries from appearing in logs
+        # Read by public.delete_from_bucket() (volumes/db/giftamizer/0010-cascade-delete-files.sql)
+        # to authenticate its net.http_delete() calls to the storage service.
+        "-c",
+        "custom.service_role_key=${SERVICE_ROLE_KEY}"
       ]
+
+  # Automated Postgres backups. Opt-in via COMPOSE_PROFILES (e.g. giftamizer-extras,backup)
+  # since local dev throwaway databases don't need scheduled backups.
+  db-backup:
+    container_name: supabase-db-backup
+    image: prodrigestivill/postgres-backup-local:15
+    restart: unless-stopped
+    profiles: ["backup"]
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backups:/backups
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SCHEDULE: ${BACKUP_SCHEDULE:-@daily}
+      BACKUP_ON_START: "TRUE"
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+      BACKUP_KEEP_WEEKS: ${BACKUP_KEEP_WEEKS:-4}
+      BACKUP_KEEP_MONTHS: ${BACKUP_KEEP_MONTHS:-6}
 
 #   vector:
 #     container_name: supabase-vector
@@ -553,10 +581,21 @@ services:
   # Set COMPOSE_PROFILES=giftamizer-extras in .env to start them (always-on in production).
   smtp2graph:
     container_name: giftamizer-smtp2graph
-    image: evantrow/smtp2graph:latest
+    image: evantrow/smtp2graph:latest@sha256:01adf4ae92ddf7fe04125c2e5de52b427215f2fc76e96725a7a03a180e249c11
     restart: unless-stopped
     profiles: ["giftamizer-extras"]
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "465"]
+      timeout: 5s
+      interval: 5s
+      retries: 5
     ports:
+      # NOTE: confirmed by direct container inspection that this image always listens
+      # for SMTP on 465 (implicit TLS), never on plain 25, regardless of DEV_MODE or
+      # other env vars. The container-side "25" below is not actually listened on.
+      # GOTRUE_SMTP_PORT / SMTP_PORT in .env should point at 465, not 25, for the
+      # `auth` service to actually reach this container - worth double-checking that
+      # prod auth emails (signup/reset) are actually being delivered today.
       - ${SMTP2GRAPH_HTTP_PORT}:8080
       - ${SMTP2GRAPH_SMTP_PORT}:25
     environment:
@@ -569,19 +608,35 @@ services:
 
   urlmetadata:
     container_name: giftamizer-urlmetadata
-    image: explodedcode/urlmetadata:latest
+    image: explodedcode/urlmetadata:latest@sha256:cdd26d3af0d660a1faef5a6ff9782ca1711524c6fbcc7de3d725e999e8651675
     restart: unless-stopped
     profiles: ["giftamizer-extras"]
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5500/"]
+      timeout: 5s
+      interval: 5s
+      retries: 5
     ports:
+      # NOTE: confirmed by direct container inspection that this image ignores the
+      # PORT env var and always listens on 5500 internally, so the host-side port is
+      # intentionally hardcoded here rather than driven by URLMETADATA_HTTP_PORT.
       - 5500:5500
     environment:
       PORT: ${URLMETADATA_HTTP_PORT}
 
   firebase-auth-middleware:
     container_name: firebase-auth-middleware
-    image: explodedcode/firebase-auth-middleware:latest
+    image: explodedcode/firebase-auth-middleware:latest@sha256:9f11e84840141c9a9165e779646bb67db688f0a91d1fa1e777c34c1b7343d485
     restart: unless-stopped
     profiles: ["giftamizer-extras"]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost $$PORT"]
+      timeout: 5s
+      interval: 5s
+      retries: 5
     environment:
       PORT: ${FIREBASE_AUTH_HTTP_PORT}
       SUPABASE_URL: http://kong:8000

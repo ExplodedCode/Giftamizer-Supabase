@@ -178,7 +178,7 @@ CREATE POLICY "allow group image select"
     AND 
     exists (
       select 1 from group_members
-      where group_members.user_id = auth.uid() AND group_members.group_id = Cast(storage.filename(name) as uuid) AND group_members.owner = true
+      where group_members.user_id = auth.uid() AND group_members.group_id = Cast(name as uuid) AND group_members.owner = true
     )
    ));
 CREATE POLICY "allow group image insert"
@@ -186,7 +186,7 @@ CREATE POLICY "allow group image insert"
   AS PERMISSIVE
   FOR INSERT
   TO authenticated 
-  WITH CHECK (((bucket_id = 'groups'::text) AND is_group_owner(Cast(storage.filename(name) as uuid), auth.uid()) ));
+  WITH CHECK (((bucket_id = 'groups'::text) AND is_group_owner(Cast(name as uuid), auth.uid()) ));
 CREATE POLICY "allow group image update"
   ON storage.objects
   AS PERMISSIVE
@@ -196,7 +196,7 @@ CREATE POLICY "allow group image update"
     AND 
     exists (
       select 1 from group_members
-      where group_members.user_id = auth.uid() AND group_members.group_id = Cast(storage.filename(name) as uuid) AND group_members.owner = true
+      where group_members.user_id = auth.uid() AND group_members.group_id = Cast(name as uuid) AND group_members.owner = true
     )
    ));
 CREATE POLICY "allow group image delete"
@@ -208,7 +208,7 @@ CREATE POLICY "allow group image delete"
     AND 
     exists (
       select 1 from group_members
-      where group_members.user_id = auth.uid() AND group_members.group_id = Cast(storage.filename(name) as uuid) AND group_members.owner = true
+      where group_members.user_id = auth.uid() AND group_members.group_id = Cast(name as uuid) AND group_members.owner = true
     )
    ));
 

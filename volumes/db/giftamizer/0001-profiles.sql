@@ -117,25 +117,25 @@ CREATE POLICY "allow user select"
   AS PERMISSIVE
   FOR SELECT
   TO authenticated 
-  USING (((bucket_id = 'avatars'::text) AND (storage.filename(name) = (auth.uid())::text)));
+  USING (((bucket_id = 'avatars'::text) AND (name = (auth.uid())::text)));
 CREATE POLICY "allow user insert"
   ON storage.objects
   AS PERMISSIVE
   FOR INSERT
   TO authenticated 
-  WITH CHECK (((bucket_id = 'avatars'::text) AND (storage.filename(name) = (auth.uid())::text)));
+  WITH CHECK (((bucket_id = 'avatars'::text) AND (name = (auth.uid())::text)));
 CREATE POLICY "allow user update"
   ON storage.objects
   AS PERMISSIVE
   FOR UPDATE
   TO authenticated 
-  USING (((bucket_id = 'avatars'::text) AND (storage.filename(name) = (auth.uid())::text)));
+  USING (((bucket_id = 'avatars'::text) AND (name = (auth.uid())::text)));
 CREATE POLICY "allow user delete"
   ON storage.objects
   AS PERMISSIVE
   FOR DELETE
   TO authenticated 
-  USING (((bucket_id = 'avatars'::text) AND (storage.filename(name) = (auth.uid())::text)));
+  USING (((bucket_id = 'avatars'::text) AND (name = (auth.uid())::text)));
 
 
 -- Function update item archived/deleted when disabled

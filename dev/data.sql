@@ -5,3 +5,8 @@
 -- Add INSERT statements here if you want sample data preloaded into a fresh
 -- local database. Sign up through the app/Studio to exercise the real
 -- auth.users -> public.profiles flow instead of hand-inserting profile rows.
+
+-- The frontend queries public.system with .single() on every page load (see
+-- Giftamizer/src/lib/useSupabase/hooks/useSystem.tsx) - an empty table 406s
+-- app-wide, so a fresh install needs exactly one row here.
+INSERT INTO public.system (maintenance) VALUES (false);

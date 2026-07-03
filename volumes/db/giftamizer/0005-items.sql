@@ -38,7 +38,7 @@ CREATE POLICY "allow item image select"
   FOR SELECT
   TO authenticated 
   USING (
-    (bucket_id = 'items'::text)	AND is_item_owner(Cast(storage.filename(name) as uuid), auth.uid())
+    (bucket_id = 'items'::text)	AND is_item_owner(Cast(name as uuid), auth.uid())
   );
 CREATE POLICY "allow item image insert"
   ON storage.objects
@@ -46,7 +46,7 @@ CREATE POLICY "allow item image insert"
   FOR INSERT
   TO authenticated 
   WITH CHECK (
-    (bucket_id = 'items'::text)	AND is_item_owner(Cast(storage.filename(name) as uuid), auth.uid())
+    (bucket_id = 'items'::text)	AND is_item_owner(Cast(name as uuid), auth.uid())
   );
 CREATE POLICY "allow item image update"
   ON storage.objects
@@ -54,7 +54,7 @@ CREATE POLICY "allow item image update"
   FOR UPDATE
   TO authenticated 
   USING (
-    (bucket_id = 'items'::text)	AND is_item_owner(Cast(storage.filename(name) as uuid), auth.uid())
+    (bucket_id = 'items'::text)	AND is_item_owner(Cast(name as uuid), auth.uid())
   );
 CREATE POLICY "allow item image delete"
   ON storage.objects
@@ -62,7 +62,7 @@ CREATE POLICY "allow item image delete"
   FOR DELETE
   TO authenticated 
   USING (
-    (bucket_id = 'items'::text)	AND is_item_owner(Cast(storage.filename(name) as uuid), auth.uid())
+    (bucket_id = 'items'::text)	AND is_item_owner(Cast(name as uuid), auth.uid())
   );
 
 CREATE TABLE lists (
@@ -98,7 +98,7 @@ CREATE POLICY "allow list image select"
   FOR SELECT
   TO authenticated 
   USING (
-    (bucket_id = 'lists'::text)	AND is_list_owner(Cast(storage.filename(name) as TEXT), auth.uid())
+    (bucket_id = 'lists'::text)	AND is_list_owner(Cast(name as TEXT), auth.uid())
   );
 CREATE POLICY "allow list image insert"
   ON storage.objects
@@ -106,7 +106,7 @@ CREATE POLICY "allow list image insert"
   FOR INSERT
   TO authenticated 
   WITH CHECK (
-    (bucket_id = 'lists'::text)	AND is_list_owner(Cast(storage.filename(name) as TEXT), auth.uid())
+    (bucket_id = 'lists'::text)	AND is_list_owner(Cast(name as TEXT), auth.uid())
   );
 CREATE POLICY "allow list image update"
   ON storage.objects
@@ -114,7 +114,7 @@ CREATE POLICY "allow list image update"
   FOR UPDATE
   TO authenticated 
   USING (
-    (bucket_id = 'lists'::text)	AND is_list_owner(Cast(storage.filename(name) as TEXT), auth.uid())
+    (bucket_id = 'lists'::text)	AND is_list_owner(Cast(name as TEXT), auth.uid())
   );
 CREATE POLICY "allow list image delete"
   ON storage.objects
@@ -122,7 +122,7 @@ CREATE POLICY "allow list image delete"
   FOR DELETE
   TO authenticated 
   USING (
-    (bucket_id = 'lists'::text)	AND is_list_owner(Cast(storage.filename(name) as TEXT), auth.uid())
+    (bucket_id = 'lists'::text)	AND is_list_owner(Cast(name as TEXT), auth.uid())
   );
 
 CREATE TABLE items_lists (
