@@ -10,7 +10,20 @@
 -- which itself only succeeds if the requesting user's own session passes
 -- these policies. INSERT/UPDATE/DELETE stay owner-only, unchanged.
 
-UPDATE storage.buckets SET public = false WHERE id IN ('avatars', 'groups', 'items', 'lists');
+-- On a brand-new install, storage.buckets.public doesn't exist yet at this
+-- point - it's added later by the storage-api service's own migrations,
+-- same as the bucket inserts in 0001/0003/0005 (see their comments). Skip
+-- here rather than crash the whole init pass; re-run this UPDATE via
+-- Studio's SQL editor after first boot to make sure buckets end up private.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'storage' AND table_name = 'buckets' AND column_name = 'public'
+  ) THEN
+    UPDATE storage.buckets SET public = false WHERE id IN ('avatars', 'groups', 'items', 'lists');
+  END IF;
+END $$;
 
 -- avatars: any signed-in user can view any avatar, matching the openness
 -- public.profiles already has ("Any one can view profiles" USING (true)).

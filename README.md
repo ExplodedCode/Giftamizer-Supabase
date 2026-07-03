@@ -84,6 +84,13 @@ echo "COMPOSE_PROFILES=giftamizer-extras" >> .env
 
 On Windows PowerShell: `Add-Content .env "COMPOSE_PROFILES=giftamizer-extras"`, then `.\run.ps1 dev up`.
 
+### GitHub issue tracker (optional)
+
+The Support page's issue tracker is powered by the `github` edge function.
+Set `GITHUB_TOKEN`, `GITHUB_OWNER`, and `GITHUB_REPO` in `.env` to enable it —
+leave `GITHUB_TOKEN` blank to disable; the frontend hides the Support nav
+item when it isn't configured.
+
 ### S3-backed storage (optional)
 
 To test with S3-compatible storage (MinIO) instead of the local filesystem:
