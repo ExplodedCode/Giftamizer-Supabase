@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS public.groups
   image_token numeric,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
-  fbid text null
+  secret_santa jsonb NOT NULL DEFAULT '{"status": "init"}'::jsonb,
+  invite_link boolean NOT NULL DEFAULT true
 );
 create trigger handle_updated_at before update on groups
   for each row execute procedure moddatetime (updated_at);
@@ -162,6 +163,9 @@ create policy "Owner can delete members or user can leave group"
   );
 
 -- Set up Storage
+-- NOTE: storage.buckets.public is added later by the storage-api service's own
+-- migrations (it doesn't exist yet during this Postgres init pass), so mark
+-- buckets public via Studio > Storage after first boot if needed.
 insert into storage.buckets (id, name)
 values ('groups', 'groups');
 
@@ -267,7 +271,43 @@ AS $$
       select cast(groups.id as uuid) as id, cast(groups.name as text),
         cast((select count(*) from group_members g where g.group_id = groups.id and g.owner = true AND g.user_id <> cast(owner_id as uuid)) as int) as owner_count
       from group_members inner join groups on groups.id = group_members.group_id
-      where user_id = cast(owner_id as uuid) AND owner = true AND 
+      where user_id = cast(owner_id as uuid) AND owner = true AND
         (select count(*) from group_members g where g.group_id= groups.id and g.owner = true AND g.user_id <> cast(owner_id as uuid)) = 0;
 	end;
+$$;
+
+-- shareable invite link: preview group + members before accepting
+CREATE FUNCTION public.get_link_invite(_group_id uuid) RETURNS TABLE(name text, image_token numeric, members jsonb)
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM groups WHERE id = _group_id AND invite_link = true) THEN
+    RAISE EXCEPTION 'Group invite does not exist!';
+  END IF;
+
+  RETURN QUERY
+  SELECT g.name, g.image_token, jsonb_agg(jsonb_build_object('user_id', u.user_id, 'first_name', u.first_name, 'avatar_token', u.avatar_token))
+  FROM groups g
+  JOIN group_members gm ON g.id = gm.group_id
+  JOIN profiles u ON u.user_id = gm.user_id AND gm.invite = false
+  WHERE g.id = _group_id
+  GROUP BY g.name, g.image_token;
+END;
+$$;
+
+-- shareable invite link: join a group without an external_invites row
+CREATE FUNCTION public.accept_link_invite(_group_id uuid, _user_id uuid) RETURNS TABLE(group_id uuid, user_id uuid)
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM groups WHERE id = _group_id AND invite_link = true) THEN
+    RAISE EXCEPTION 'Group invite does not exist!';
+  END IF;
+
+  INSERT INTO group_members (group_id, user_id, owner, invite)
+  VALUES (_group_id, _user_id, false, false);
+
+  RETURN QUERY
+  SELECT _group_id as group_id, _user_id as user_id;
+END;
 $$;

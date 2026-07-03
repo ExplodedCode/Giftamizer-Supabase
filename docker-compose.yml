@@ -414,20 +414,21 @@ services:
       - ./volumes/db/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:Z
 
       # Giftamizer specific scripts
-    #   - ./volumes/db/giftamizer/0000-init.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0000-init.sql:Z
-    #   - ./volumes/db/giftamizer/0001-profiles.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0001-profiles.sql:Z
-    #   - ./volumes/db/giftamizer/0002-notifications.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0002-notifications.sql:Z
-    #   - ./volumes/db/giftamizer/0003-groups.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0003-groups.sql:Z
-    #   - ./volumes/db/giftamizer/0004-external-invites.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0004-external-invites.sql:Z
-    #   - ./volumes/db/giftamizer/0005-items.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0005-items.sql:Z
-    #   - ./volumes/db/giftamizer/0007-item-status.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0007-item-status.sql:Z
-    #   - ./volumes/db/giftamizer/0008-system.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0008-system.sql:Z
-    #   - ./volumes/db/giftamizer/0009-dashboard.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0009-dashboard.sql:Z
+      - ./volumes/db/giftamizer/0000-init.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0000-init.sql:Z
+      - ./volumes/db/giftamizer/0001-profiles.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0001-profiles.sql:Z
+      - ./volumes/db/giftamizer/0002-notifications.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0002-notifications.sql:Z
+      - ./volumes/db/giftamizer/0003-groups.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0003-groups.sql:Z
+      - ./volumes/db/giftamizer/0004-external-invites.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0004-external-invites.sql:Z
+      - ./volumes/db/giftamizer/0005-items.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0005-items.sql:Z
+      - ./volumes/db/giftamizer/0007-item-status.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0007-item-status.sql:Z
+      - ./volumes/db/giftamizer/0008-system.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0008-system.sql:Z
+      - ./volumes/db/giftamizer/0009-dashboard.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0009-dashboard.sql:Z
+      - ./volumes/db/giftamizer/0010-cascade-delete-files.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0010-cascade-delete-files.sql:Z
 
       # Use named volume to persist pgsodium decryption key between restarts
       - db-config:/etc/postgresql-custom
       # PGDATA directory is persisted between restarts
-      #- ./volumes/db/data:/var/lib/postgresql/data:Z
+      - ./volumes/db/data:/var/lib/postgresql/data:Z
     healthcheck:
       test:
         [
@@ -548,10 +549,13 @@ services:
 
 
 
+  # Giftamizer-specific services below are opt-in for local dev.
+  # Set COMPOSE_PROFILES=giftamizer-extras in .env to start them (always-on in production).
   smtp2graph:
     container_name: giftamizer-smtp2graph
     image: evantrow/smtp2graph:latest
     restart: unless-stopped
+    profiles: ["giftamizer-extras"]
     ports:
       - ${SMTP2GRAPH_HTTP_PORT}:8080
       - ${SMTP2GRAPH_SMTP_PORT}:25
@@ -567,6 +571,7 @@ services:
     container_name: giftamizer-urlmetadata
     image: explodedcode/urlmetadata:latest
     restart: unless-stopped
+    profiles: ["giftamizer-extras"]
     ports:
       - 5500:5500
     environment:
@@ -576,6 +581,7 @@ services:
     container_name: firebase-auth-middleware
     image: explodedcode/firebase-auth-middleware:latest
     restart: unless-stopped
+    profiles: ["giftamizer-extras"]
     environment:
       PORT: ${FIREBASE_AUTH_HTTP_PORT}
       SUPABASE_URL: http://kong:8000

@@ -19,6 +19,10 @@ CREATE TABLE IF NOT EXISTS public.profiles
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
 
+  home text NOT NULL DEFAULT '/'::text,
+  enable_snowfall boolean NOT NULL DEFAULT false,
+  tour jsonb NOT NULL DEFAULT '{}'::jsonb,
+
   CONSTRAINT profiles_pkey PRIMARY KEY (user_id),
   CONSTRAINT profiles_email_fkey FOREIGN KEY (email)
     REFERENCES auth.users (email) MATCH SIMPLE
@@ -103,6 +107,9 @@ $$;
 alter publication supabase_realtime add table profiles;
 
 -- Set up Storage
+-- NOTE: storage.buckets.public is added later by the storage-api service's own
+-- migrations (it doesn't exist yet during this Postgres init pass), so mark
+-- buckets public via Studio > Storage after first boot if needed.
 insert into storage.buckets (id, name) values ('avatars', 'avatars');
 
 CREATE POLICY "allow user select"

@@ -10,12 +10,16 @@ CREATE TABLE items (
   image_token numeric,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  fbid text null
+  domains text[],
+  shopping_item uuid
 );
 create trigger handle_updated_at before update on items
   for each row execute procedure moddatetime (updated_at);
 
   -- Set up Storage
+-- NOTE: storage.buckets.public is added later by the storage-api service's own
+-- migrations (it doesn't exist yet during this Postgres init pass), so mark
+-- buckets public via Studio > Storage after first boot if needed.
 insert into storage.buckets (id, name) values ('items', 'items');
 CREATE OR REPLACE FUNCTION is_item_owner(
     _item_id UUID,
@@ -70,8 +74,8 @@ CREATE TABLE lists (
   avatar_token numeric,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  fbid text null,
-  
+  pinned boolean NOT NULL DEFAULT false,
+
   PRIMARY KEY (id, user_id)
 );
 
@@ -291,13 +295,49 @@ create policy "Users can delete own lists_groups"
 -- Allow group members to select lists_groups
 CREATE POLICY "Group members can select lists_groups"
   ON lists_groups for select
-  TO authenticated 
+  TO authenticated
   USING (
     EXISTS (
-      SELECT 1 
+      SELECT 1
       FROM group_members
-      WHERE 
-        group_members.user_id = auth.uid() 
+      WHERE
+        group_members.user_id = auth.uid()
         AND group_members.group_id = lists_groups.group_id
     )
   );
+
+
+--
+-- link_domains: cache of hostname -> display domain, used to populate items.domains
+CREATE TABLE public.link_domains (
+    original text NOT NULL,
+    domain text NOT NULL,
+    PRIMARY KEY (original)
+);
+
+CREATE FUNCTION public.get_link_domains() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  domains text[];
+  links text[] := NEW.links;
+BEGIN
+  IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') AND array_length(links, 1) is not null  THEN
+
+    FOR i IN 1 .. array_upper(links, 1) LOOP
+      domains := domains || (
+        SELECT CASE WHEN link_domains.domain is null THEN replace(token, 'www.', '') ELSE link_domains.domain END as domain FROM ts_debug(links[i])
+        LEFT JOIN public.link_domains on replace(token, 'www.', '') = original
+        WHERE alias = 'host' limit 1
+      );
+    end loop;
+  END IF;
+
+  NEW.domains = domains;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER update_item_domains
+  BEFORE INSERT OR UPDATE ON items
+  FOR EACH ROW EXECUTE FUNCTION public.get_link_domains();
