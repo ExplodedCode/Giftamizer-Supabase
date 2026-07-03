@@ -11,7 +11,7 @@ CREATE TABLE items (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   domains text[],
-  shopping_item uuid
+  shopping_item uuid REFERENCES profiles(user_id)
 );
 create trigger handle_updated_at before update on items
   for each row execute procedure moddatetime (updated_at);

@@ -14,6 +14,40 @@ const supabase = createClient(SUPABASE_URL || '', SUPABASE_SERVICE_ROLE_KEY || '
 
 const router = new Router();
 router
+	.post('/invite/preview', async (context) => {
+		// Unauthenticated preview for a group invite link (GroupInvite.tsx).
+		// Uses the service role to sign the group/member images server-side,
+		// since the visitor may not be signed in yet and storage.objects RLS
+		// requires an authenticated session. get_link_invite() itself still
+		// gates this on the group having invite_link = true.
+		try {
+			const result = context.request.body({ type: 'json', limit: 0 });
+			const body = await result.value;
+			const group_id = body.group_id;
+
+			const { data, error } = await supabase.rpc('get_link_invite', { _group_id: group_id }).single();
+			if (error) {
+				context.response.status = 400;
+				context.response.body = { message: error.message };
+				return;
+			}
+
+			const image = data.image_token ? (await supabase.storage.from('groups').createSignedUrl(`${group_id}`, 3600)).data?.signedUrl : undefined;
+
+			const members = await Promise.all(
+				(data.members || []).map(async (member: any) => ({
+					...member,
+					image: member.avatar_token ? (await supabase.storage.from('avatars').createSignedUrl(`${member.user_id}`, 3600)).data?.signedUrl : undefined,
+				}))
+			);
+
+			context.response.body = { name: data.name, image_token: data.image_token, image, members };
+		} catch (error) {
+			console.log(error);
+			context.response.status = 500;
+			context.response.body = { message: error.message };
+		}
+	})
 	.post('/invite/internal', async (context) => {
 		try {
 			// Note: request body will be streamed to the function as chunks, set limit to 0 to fully read it.
