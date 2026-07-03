@@ -44,9 +44,14 @@ paste the output into your `.env`.
 
 This starts the full Supabase stack plus dev conveniences:
 
-- **Studio / API gateway** — http://localhost:8000 (basic auth: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` from `.env`)
+- **Studio / API gateway** — http://localhost:8000 (basic auth: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` from `.env`). Every route other than Studio's own catch-all (`/auth/v1`, `/rest/v1`, `/storage/v1`, etc.) is proxied through Kong here — this repo doesn't serve the Giftamizer app itself.
 - **Inbucket (fake mail server)** — http://localhost:9000, catches all auth emails so you don't need real SMTP locally
 - **Postgres Meta** — exposed on `localhost:5555` for direct DB introspection tools
+
+The Giftamizer frontend is a separate repo/process — see its
+[local-setup docs](https://github.com/ExplodedCode/Giftamizer/blob/main/docs/local-setup.md)
+for running it (CRA dev server on http://localhost:3001, talking to this
+backend's port 8000 over CORS).
 
 The Giftamizer schema (`profiles`, `groups`, `items`, `lists`, RLS policies,
 storage buckets, etc.) is created automatically from
