@@ -42,6 +42,15 @@ If you want your own JWT secret/keys instead of the shared demo ones in
 run `./utils/generate-keys.sh` (or `.\utils\generate-keys.ps1` on Windows) and
 paste the output into your `.env`.
 
+**Upgrading an existing install:** this repo tracks upstream
+[supabase/supabase](https://github.com/supabase/supabase)'s `docker-compose.yml`.
+Postgres 17 is now the default `db` image — an *existing* Postgres 15 data
+volume won't start on it as-is; run `sudo bash utils/upgrade-pg17.sh` first
+(see the script's header for details), or pin `docker-compose.pg15.yml` to
+keep running 15 for now. New installs need nothing extra. Either way, add
+`PG_META_CRYPTO_KEY` to your `.env` (Studio/postgres-meta now require it) —
+see `.env.example` for the format.
+
 This starts the full Supabase stack plus dev conveniences:
 
 - **Studio / API gateway** — http://localhost:8000 (basic auth: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` from `.env`). Every route other than Studio's own catch-all (`/auth/v1`, `/rest/v1`, `/storage/v1`, etc.) is proxied through Kong here — this repo doesn't serve the Giftamizer app itself.
@@ -104,6 +113,17 @@ To test with S3-compatible storage (MinIO) instead of the local filesystem:
 docker compose -f docker-compose.yml -f docker-compose.s3.yml up -d
 ```
 
+### Logs / Analytics dashboard (optional)
+
+Studio's Logs page needs Logflare + Vector, which aren't started by default
+(matches upstream). To enable:
+
+```sh
+echo "LOGFLARE_PUBLIC_ACCESS_TOKEN=$(openssl rand -base64 24)" >> .env
+echo "LOGFLARE_PRIVATE_ACCESS_TOKEN=$(openssl rand -base64 24)" >> .env
+docker compose -f docker-compose.yml -f docker-compose.logs.yml up -d
+```
+
 ### Automated backups (optional, always-on in production)
 
 A `db-backup` service (`prodrigestivill/postgres-backup-local`) takes scheduled
@@ -123,16 +143,21 @@ Tune the schedule/retention via `BACKUP_SCHEDULE`, `BACKUP_KEEP_DAYS`,
 
 - `docker-compose.yml` — the full stack; this is also what production runs
 - `dev/docker-compose.dev.yml` — local dev overrides (fake mail server, fresh DB volume, exposed meta port)
+- `docker-compose.pg15.yml` / `docker-compose.pg17.yml` — pin the `db` image to Postgres 15 (existing un-upgraded installs) or 17 (explicit default) instead of whatever `docker-compose.yml` currently ships
+- `docker-compose.logs.yml` — optional Logflare + Vector override, powers Studio's Logs page
 - `docker-compose.s3.yml` — optional MinIO-backed storage override
 - `run.sh` / `run.ps1` — convenience wrapper for the common `docker compose` invocations above
 - `reset.sh` / `reset.ps1` — wipes containers/volumes/`.env` and starts over
 - `utils/generate-keys.sh` / `utils/generate-keys.ps1` — generates a fresh `JWT_SECRET`/`ANON_KEY`/`SERVICE_ROLE_KEY` set
+- `utils/upgrade-pg17.sh` — in-place Postgres 15 → 17 data upgrade for existing installs (bash-only; see its header)
 - `scripts/check-schema-drift.sh` / `scripts/check-schema-drift.ps1` — diffs a fresh local install's schema against a live database (see below)
 - `volumes/db/` — Postgres init scripts, run once against an empty database:
   - `roles.sql`, `jwt.sql`, `webhooks.sql`, `logs.sql`, `pooler.sql`, `realtime.sql`, `_supabase.sql` — stock Supabase setup
   - `giftamizer/00NN-*.sql` — Giftamizer's application schema, run in numeric order (see below)
 - `volumes/api/kong.yml` — API gateway routing
+- `volumes/api/kong-entrypoint.sh` — Kong's custom entrypoint (env substitution + opaque-key Lua expressions)
 - `volumes/functions/` — Edge Functions (Deno)
+- `volumes/logs/vector.yml` — Vector log-routing config, used by `docker-compose.logs.yml`
 - `dev/data.sql` — optional local dev seed data (empty by default)
 - `backups/` — gitignored; where the optional `db-backup` service writes to
 

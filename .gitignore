@@ -4,3 +4,9 @@ volumes/storage
 test.http
 docker-compose.override.yml
 backups/
+
+# utils/upgrade-pg17.sh artifacts
+volumes/db/data.bak.pg15
+volumes/db/data_migration
+volumes/db/pg17_upgrade_bin_*.tar.gz
+volumes/db/pgsodium_root.key.bak.pg15
