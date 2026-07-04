@@ -492,7 +492,7 @@ services:
   # since local dev throwaway databases don't need scheduled backups.
   db-backup:
     container_name: supabase-db-backup
-    image: prodrigestivill/postgres-backup-local:15
+    image: prodrigestivill/postgres-backup-local:17
     restart: unless-stopped
     profiles: ["backup"]
     depends_on:
