@@ -615,46 +615,6 @@ services:
     environment:
       PORT: ${URLMETADATA_HTTP_PORT}
 
-  firebase-auth-middleware:
-    container_name: firebase-auth-middleware
-    image: explodedcode/firebase-auth-middleware:latest@sha256:9f11e84840141c9a9165e779646bb67db688f0a91d1fa1e777c34c1b7343d485
-    restart: unless-stopped
-    profiles: ["giftamizer-extras"]
-    depends_on:
-      db:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost $$PORT"]
-      timeout: 5s
-      interval: 5s
-      retries: 5
-    environment:
-      PORT: ${FIREBASE_AUTH_HTTP_PORT}
-      SUPABASE_URL: http://kong:8000
-      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
-      POSTGRES_HOST: ${POSTGRES_HOST}
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_PORT: ${POSTGRES_PORT}
-      POSTGRES_USER: supabase_admin
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      FIREBASE_MEMCOST: ${FIREBASE_MEMCOST}
-      FIREBASE_ROUNDS: ${FIREBASE_ROUNDS}
-      FIREBASE_SALTSEPARATOR: ${FIREBASE_SALTSEPARATOR}
-      FIREBASE_SIGNERKEY: ${FIREBASE_SIGNERKEY}
-
-#   web-server:
-#     container_name: giftamizer-web-server
-#     hostname: web-server
-#     image: nginx:latest
-#     restart: unless-stopped
-#     environment:
-#       PORT: ${FIREBASE_AUTH_HTTP_PORT}
-#     volumes:
-#       - ./volumes/web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-#       - ./volumes/web/build:/usr/share/nginx/html:Z
-
-
-
 volumes:
   db-config:
   deno-cache:

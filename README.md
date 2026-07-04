@@ -85,11 +85,10 @@ completely fresh:
 
 ### Giftamizer's extra services (optional)
 
-Production also runs three Giftamizer-specific containers: `smtp2graph`
-(SMTP-to-Microsoft-Graph email relay), `urlmetadata` (link preview
-metadata), and `firebase-auth-middleware` (legacy Firebase password
-verification). These are **not** started by default locally since they need
-Azure AD / Firebase credentials. To opt in:
+Production also runs two Giftamizer-specific containers: `smtp2graph`
+(SMTP-to-Microsoft-Graph email relay) and `urlmetadata` (link preview
+metadata). These are **not** started by default locally since they need
+Azure AD credentials. To opt in:
 
 ```sh
 echo "COMPOSE_PROFILES=giftamizer-extras" >> .env
