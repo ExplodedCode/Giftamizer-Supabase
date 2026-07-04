@@ -512,6 +512,68 @@ services:
       BACKUP_KEEP_WEEKS: ${BACKUP_KEEP_WEEKS:-4}
       BACKUP_KEEP_MONTHS: ${BACKUP_KEEP_MONTHS:-6}
 
+  # Local restic backup of the db-backup pg_dumps above (./backups) and the
+  # Storage files (./volumes/storage): encrypted, deduplicated snapshots
+  # written to ./volumes/restic-repo. On every successful backup,
+  # POST_COMMANDS_SUCCESS runs `rclone sync` to mirror that local repo to
+  # whichever remote is configured in RCLONE_REMOTE / ./volumes/rclone -
+  # rclone supports ~70 backends (S3, B2, R2, SFTP, Google Drive, ...), none
+  # of which are hardcoded here; the remote itself is defined via
+  # `rclone config` (see README). db-backup alone only protects against DB
+  # corruption, not host/disk loss - this is what actually gets a copy off
+  # the machine. Opt-in via COMPOSE_PROFILES (e.g.
+  # giftamizer-extras,backup,restic-backup); enable alongside the "backup"
+  # profile so ./backups has something to read.
+  restic-backup:
+    container_name: supabase-restic-backup
+    image: mazzolino/restic:1.8.2
+    restart: unless-stopped
+    profiles: ["restic-backup"]
+    volumes:
+      - ./backups:/data/backups:ro
+      - ./volumes/storage:/data/storage:ro
+      - ./volumes/restic-repo:/data/restic-repo
+      # rclone.conf lives here (create via `rclone config`, see README).
+      # Mounted read-write, not read-only: backends with oauth refresh
+      # tokens (B2, OneDrive, Google Drive) rewrite this file in place.
+      - ./volumes/rclone:/root/.config/rclone
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      RESTIC_REPOSITORY: /data/restic-repo
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD}
+      RESTIC_BACKUP_SOURCES: /data/backups /data/storage
+      RESTIC_BACKUP_ARGS: --tag giftamizer
+      RESTIC_FORGET_ARGS: --keep-daily ${RESTIC_KEEP_DAYS:-7} --keep-weekly ${RESTIC_KEEP_WEEKS:-4} --keep-monthly ${RESTIC_KEEP_MONTHS:-6}
+      RUN_ON_STARTUP: "true"
+      BACKUP_CRON: ${RESTIC_BACKUP_CRON:-0 30 3 * * *}
+      RCLONE_REMOTE: ${RCLONE_REMOTE}
+      POST_COMMANDS_SUCCESS: rclone sync /data/restic-repo "$$RCLONE_REMOTE"
+
+  # Reclaims space that restic-backup's forget only marked as removable, then
+  # mirrors the result offsite too (so deleted snapshots disappear remotely,
+  # not just locally). Shares the local repo and rclone config with
+  # restic-backup above; SKIP_INIT keeps this container from racing
+  # restic-backup to initialize a brand-new repository. BACKUP_CRON/
+  # PRUNE_CRON are mutually exclusive per container - that's why this is a
+  # separate service instead of another env var on restic-backup.
+  restic-prune:
+    container_name: supabase-restic-prune
+    image: mazzolino/restic:1.8.2
+    restart: unless-stopped
+    profiles: ["restic-backup"]
+    volumes:
+      - ./volumes/restic-repo:/data/restic-repo
+      - ./volumes/rclone:/root/.config/rclone
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      SKIP_INIT: "true"
+      RESTIC_REPOSITORY: /data/restic-repo
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD}
+      RUN_ON_STARTUP: "true"
+      PRUNE_CRON: ${RESTIC_PRUNE_CRON:-0 0 4 * * *}
+      RCLONE_REMOTE: ${RCLONE_REMOTE}
+      POST_COMMANDS_SUCCESS: rclone sync /data/restic-repo "$$RCLONE_REMOTE"
+
   # Update the DATABASE_URL if you are using an external Postgres database
   supavisor:
     container_name: supabase-pooler

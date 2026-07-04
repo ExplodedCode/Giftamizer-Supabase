@@ -138,6 +138,73 @@ On Windows PowerShell: `Add-Content .env "COMPOSE_PROFILES=giftamizer-extras,bac
 Tune the schedule/retention via `BACKUP_SCHEDULE`, `BACKUP_KEEP_DAYS`,
 `BACKUP_KEEP_WEEKS`, `BACKUP_KEEP_MONTHS` in `.env` (see `.env.example`).
 
+### Offsite backup (optional, recommended for production)
+
+`db-backup` above only protects against DB-level mistakes/corruption - the
+dumps still live on the same disk as everything else, and nothing backs up
+the Storage files in `./volumes/storage` at all. Two `mazzolino/restic`-based
+services close both gaps, using a two-stage approach: **restic** first takes
+encrypted, deduplicated snapshots of `./backups` (the pg_dumps) and
+`./volumes/storage` (uploaded files) into a local repository
+(`./volumes/restic-repo`), then **rclone** mirrors that local repository to
+whichever remote you've configured - Backblaze B2, Cloudflare R2, AWS S3,
+SFTP, Google Drive, or any of the ~70 other backends rclone supports. Nothing
+about the remote is hardcoded; you define it yourself via `rclone config`.
+
+- `restic-backup` — runs the restic backup + forget on `RESTIC_BACKUP_CRON`, then syncs to the remote on success.
+- `restic-prune` — runs `restic prune` on `RESTIC_PRUNE_CRON` to actually reclaim space forget only marked as removable, then syncs again (so deleted snapshots disappear remotely too, not just locally).
+
+Both are opt-in via the `restic-backup` Compose profile, and only useful
+alongside `backup` (so there's something in `./backups` for restic to pick up):
+
+```sh
+echo "COMPOSE_PROFILES=giftamizer-extras,backup,restic-backup" >> .env
+```
+
+On Windows PowerShell: `Add-Content .env "COMPOSE_PROFILES=giftamizer-extras,backup,restic-backup"`.
+
+Before starting them:
+
+1. Create `./volumes/rclone/rclone.conf` by running `rclone config` and following the prompts for whichever backend you're using. If you don't have `rclone` installed locally, run it via the same image instead:
+   ```sh
+   docker run --rm -it -v "$(pwd)/volumes/rclone:/root/.config/rclone" mazzolino/restic:1.8.2 rclone config
+   ```
+2. In `.env` (see `.env.example` for the full list):
+   - `RESTIC_PASSWORD` — encrypts the local repository. Generate with `openssl rand -base64 32` and **do not lose it** — without it, the backups (local or offsite) are unrecoverable.
+   - `RCLONE_REMOTE` — the remote name/path from step 1, e.g. `b2:my-bucket-name/giftamizer` or `r2:my-bucket-name/giftamizer`.
+
+Schedule/retention (`RESTIC_BACKUP_CRON`, `RESTIC_PRUNE_CRON`,
+`RESTIC_KEEP_DAYS/WEEKS/MONTHS`) default to a nightly backup at 3:30am and
+prune at 4am, keeping 7 daily/4 weekly/6 monthly snapshots - tune in `.env`
+if needed.
+
+**Restoring:** if the host and `./volumes/restic-repo` are still intact, restore directly from the local repo:
+
+```sh
+docker run --rm -it \
+  -e RESTIC_REPOSITORY=/data/restic-repo -e RESTIC_PASSWORD=<your-password> \
+  -v "$(pwd)/volumes/restic-repo:/data/restic-repo" \
+  -v "$(pwd)/restore:/restore" \
+  mazzolino/restic:1.8.2 restic restore latest --target /restore
+```
+
+If the host itself was lost, pull the repository back down from the remote first:
+
+```sh
+docker run --rm -it \
+  -v "$(pwd)/volumes/rclone:/root/.config/rclone" \
+  -v "$(pwd)/volumes/restic-repo:/data/restic-repo" \
+  mazzolino/restic:1.8.2 rclone sync "<RCLONE_REMOTE value>" /data/restic-repo
+```
+
+then run the `restic restore` command above. Either way this pulls the
+latest snapshot's `./backups` and `./volumes/storage` contents into
+`./restore/data/...` on the host - from there, restore the Postgres dump
+with `psql`/`pg_restore` and copy the storage files back into
+`./volumes/storage` (stop the `storage`/`imgproxy` containers first).
+`restic snapshots` lists available snapshots if you need an earlier point
+in time instead of `latest`.
+
 ## Repo layout
 
 - `docker-compose.yml` — the full stack; this is also what production runs

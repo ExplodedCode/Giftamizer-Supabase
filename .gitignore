@@ -1,5 +1,7 @@
 volumes/db/data
 volumes/storage
+volumes/restic-repo
+volumes/rclone
 .env
 test.http
 docker-compose.override.yml
