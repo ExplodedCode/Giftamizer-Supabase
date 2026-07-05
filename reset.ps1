@@ -20,7 +20,12 @@ Write-Host "Stopping and removing all containers..."
 docker compose -f docker-compose.yml -f ./dev/docker-compose.dev.yml down -v --remove-orphans
 
 Write-Host "Cleaning up bind-mounted directories..."
-$bindMounts = @(".\volumes\db\data")
+$bindMounts = @(
+    ".\volumes\db\data",
+    ".\volumes\storage",
+    ".\backups",
+    ".\volumes\restic-repo"
+)
 
 foreach ($dir in $bindMounts) {
     if (Test-Path $dir) {
