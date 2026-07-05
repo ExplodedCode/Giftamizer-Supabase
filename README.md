@@ -69,6 +69,27 @@ an empty data directory. Sign up through the app (or Studio's Auth panel) to
 create a user — the `handle_new_user` trigger sets up their profile and
 default list automatically.
 
+### Seeding test data
+
+Once the dev stack is up, `dev/seed-test-data.js` populates it with 5 users,
+2 groups, and 30 items (all through the real Auth/REST/Storage APIs, so RLS
+and triggers behave exactly as they would for a real signup) — useful for
+exercising the app without clicking through signup forms by hand:
+
+```sh
+node dev/seed-test-data.js
+```
+
+3 of the 5 users have `enable_lists` on; of those, one gets a second list and
+another gets a third (on top of everyone's auto-created default list), and
+those extra lists are published to both groups via `lists_groups` so they
+show up as separate lists within a group. About 70% of items, groups,
+non-default lists, and user avatars get a real downloaded image from
+[picsum.photos](https://picsum.photos) uploaded to Storage. All seeded users
+share the password `Password123!`. Requires Node 18+ and a fresh database —
+re-running against already-seeded data will fail on duplicate emails; reset
+first (`./reset.sh` / `.\reset.ps1`) if you need to start over.
+
 Stop the stack with:
 
 ```sh
@@ -225,6 +246,7 @@ in time instead of `latest`.
 - `volumes/functions/` — Edge Functions (Deno)
 - `volumes/logs/vector.yml` — Vector log-routing config, used by `docker-compose.logs.yml`
 - `dev/data.sql` — optional local dev seed data (empty by default)
+- `dev/seed-test-data.js` — populates a running dev stack with sample users/groups/items via the real Auth/REST/Storage APIs (see above)
 - `backups/` — gitignored; where the optional `db-backup` service writes to
 
 ## Updating production
