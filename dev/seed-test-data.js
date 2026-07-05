@@ -57,9 +57,25 @@ if (!ANON_KEY || !SERVICE_ROLE_KEY || !JWT_SECRET) {
 const PASSWORD = 'Password123!';
 
 const USERS = [
-  { first_name: 'Alice', last_name: 'Anderson', email: 'alice@giftamizer.test', bio: 'Coffee enthusiast, always cold, easy to shop for.', enable_lists: true, extraLists: ['Birthday Wishlist'] },
-  { first_name: 'Ben', last_name: 'Baker', email: 'ben@giftamizer.test', bio: 'Board game collector and mediocre chef.', enable_lists: true, extraLists: ['Holiday Wishlist', 'Just Because'] },
-  { first_name: 'Carla', last_name: 'Chen', email: 'carla@giftamizer.test', bio: 'Professional plant parent.', enable_lists: true, extraLists: [] },
+  {
+    first_name: 'Alice', last_name: 'Anderson', email: 'alice@giftamizer.test', bio: 'Coffee enthusiast, always cold, easy to shop for.', enable_lists: true,
+    extraLists: [{ name: 'Birthday Wishlist', child_list: false }],
+  },
+  {
+    first_name: 'Ben', last_name: 'Baker', email: 'ben@giftamizer.test', bio: 'Board game collector and mediocre chef.', enable_lists: true,
+    extraLists: [
+      { name: 'Holiday Wishlist', child_list: false },
+      { name: 'Just Because', child_list: false },
+    ],
+  },
+  {
+    first_name: 'Carla', last_name: 'Chen', email: 'carla@giftamizer.test', bio: 'Professional plant parent.', enable_lists: true,
+    // Child lists: Carla manages wishlists on behalf of her kids from her own account.
+    extraLists: [
+      { name: "Jack's List", child_list: true },
+      { name: "Lily's List", child_list: true },
+    ],
+  },
   { first_name: 'Diego', last_name: 'Diaz', email: 'diego@giftamizer.test', bio: 'Runs on caffeine and spreadsheets.', enable_lists: false, extraLists: [] },
   { first_name: 'Erin', last_name: 'Evans', email: 'erin@giftamizer.test', bio: 'Books, hikes, and too many houseplants.', enable_lists: false, extraLists: [] },
 ];
@@ -239,10 +255,10 @@ async function main() {
   const lists = [];
   for (const u of users) {
     lists.push({ id: 'default', user: u, name: 'Default', isDefault: true });
-    for (const name of u.extraLists) {
-      const [row] = await rest('POST', 'lists', { jwt: u.jwt, body: { name, user_id: u.id }, prefer: 'return=representation' });
+    for (const { name, child_list } of u.extraLists) {
+      const [row] = await rest('POST', 'lists', { jwt: u.jwt, body: { name, user_id: u.id, child_list }, prefer: 'return=representation' });
       lists.push({ id: row.id, user: u, name, isDefault: false });
-      console.log(`  ${u.email}: "${name}" (${row.id})`);
+      console.log(`  ${u.email}: "${name}"${child_list ? ' (child list)' : ''} (${row.id})`);
     }
   }
 

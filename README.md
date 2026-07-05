@@ -80,11 +80,13 @@ exercising the app without clicking through signup forms by hand:
 node dev/seed-test-data.js
 ```
 
-3 of the 5 users have `enable_lists` on; of those, one gets a second list and
-another gets a third (on top of everyone's auto-created default list), and
-those extra lists are published to both groups via `lists_groups` so they
-show up as separate lists within a group. About 70% of items, groups,
-non-default lists, and user avatars get a real downloaded image from
+3 of the 5 users have `enable_lists` on; of those, one gets a second list,
+another gets a third, and the third gets two child lists (`child_list: true`,
+e.g. wishlists managed on behalf of their kids) - all on top of everyone's
+auto-created default list. Every non-default list is published to both
+groups via `lists_groups` so it shows up as a separate list within a group.
+About 70% of items, groups, non-default lists, and user avatars get a real
+downloaded image from
 [picsum.photos](https://picsum.photos) uploaded to Storage. All seeded users
 share the password `Password123!`. Requires Node 18+ and a fresh database —
 re-running against already-seeded data will fail on duplicate emails; reset
