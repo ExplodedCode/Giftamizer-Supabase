@@ -131,3 +131,17 @@ CREATE POLICY "Allow insert if can claim item"
 -- already-claimed item. Leaving UPDATE owner-blind means the owner can only
 -- ever touch a row they created themselves (i.e. their own INSERT above),
 -- same as any other claimant - first claim always wins.
+
+-- The original DELETE policy (0007) is far looser than it looks:
+-- `user_id = auth.uid() OR auth.uid() <> item_owner` lets *any* authenticated
+-- user who isn't that specific item's owner delete *anyone's* claim on it -
+-- no group/list membership check at all. That's a standing end-run around
+-- the "first claim wins" guarantee above: delete the row, then insert fresh.
+-- Found while auditing the claiming flow end-to-end; not specific to child
+-- lists, but it undermines the same invariant this file exists to protect.
+-- Tighten it to match UPDATE: only the claimant can remove their own claim.
+DROP POLICY IF EXISTS "Allow delete items_status row" ON items_status;
+CREATE POLICY "Allow delete items_status row"
+  ON items_status FOR DELETE
+  TO authenticated
+  USING (user_id = auth.uid());

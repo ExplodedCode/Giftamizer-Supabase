@@ -321,8 +321,9 @@
   .filelist .fdesc { color: var(--ink-faint); font-size: 0.8125rem; margin-top: 2px; }
 
   /* ---------- Verification ---------- */
-  .verify-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-5); margin-bottom: var(--sp-5); }
-  @media (max-width: 620px) { .verify-grid { grid-template-columns: 1fr; } }
+  .verify-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-5); margin-bottom: var(--sp-5); }
+  @media (max-width: 780px) { .verify-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 500px) { .verify-grid { grid-template-columns: 1fr; } }
   .vcard { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: var(--sp-4); }
   .vcard h3 { font-family: var(--font-ui); font-size: 0.8125rem; letter-spacing: 0.03em; margin: 0 0 var(--sp-2); color: var(--ink); }
   .vcard ul { margin: 0; padding-left: 1.1em; color: var(--ink-soft); font-size: 0.875rem; }
@@ -377,15 +378,15 @@
   <p class="dek">A review of the RLS change that lets a parent see and set claim status on their own "Display&nbsp;Separately" (child) lists, without opening a way to see or overwrite claims on anyone else's list &mdash; including their own.</p>
   <dl class="meta-strip">
     <div class="meta-item"><dt>Migration</dt><dd>0012-child-list-item-status.sql</dd></div>
-    <div class="meta-item"><dt>Iterations</dt><dd>4 revisions, 2 confirmed bugs</dd></div>
-    <div class="meta-item"><dt>Verified</dt><dd>full local reset + reseed</dd></div>
+    <div class="meta-item"><dt>Iterations</dt><dd>5 revisions, 3 confirmed bugs</dd></div>
+    <div class="meta-item"><dt>Verified</dt><dd>reset + reseed + 11 impersonated RLS tests</dd></div>
     <div class="meta-item"><dt>Status</dt><dd style="color: var(--good);">Applied &amp; matches fresh install</dd></div>
   </dl>
 
   <section style="margin-top: var(--sp-7);">
     <div class="tldr">
-      <div class="tldr-row"><span class="k">Result</span><span class="v">The owner of a child list can now <strong>see who's claimed what</strong> and <strong>make the first claim</strong> on their own child-list items. They can never see or touch claims on a regular list, and can never overwrite a claim someone else already made &mdash; even on their own child's list.</span></div>
-      <div class="tldr-row"><span class="k">Why it took 4 passes</span><span class="v">The first version only opened SELECT + UPDATE. Testing surfaced two real gaps: claiming actually needs INSERT too, and granting UPDATE by ownership (rather than by who holds the claim) let an owner silently steal another member's claim. Both are fixed in the final file.</span></div>
+      <div class="tldr-row"><span class="k">Result</span><span class="v">The owner of a child list can now <strong>see who's claimed what</strong> and <strong>make the first claim</strong> on their own child-list items. They can never see or touch claims on a regular list, and can never overwrite <em>or delete</em> a claim someone else already made &mdash; even on their own child's list.</span></div>
+      <div class="tldr-row"><span class="k">Why it took 5 passes</span><span class="v">The first version only opened SELECT + UPDATE. Testing surfaced two real gaps &mdash; claiming actually needs INSERT too, and granting UPDATE by ownership (rather than by who holds the claim) let an owner silently steal another member's claim &mdash; and a full audit of every RLS rule surfaced a third, older one: DELETE had no ownership check on the <em>claimant's</em> side at all, so anyone but the item's owner could delete anyone else's claim. All three are closed in the final file.</span></div>
     </div>
   </section>
 
@@ -441,6 +442,17 @@
         <div class="tl-body">Removed the child-list clause from UPDATE entirely. The owner can now only ever modify a claim row <em>they themselves created</em> &mdash; identical to any other claimant. First claim always wins.</div>
       </div>
 
+      <div class="tl-item bug">
+        <div class="tl-num">5</div>
+        <div class="tl-head"><span class="tl-title">DELETE let anyone but the owner remove any claim</span><span class="tag bug">Bug found</span></div>
+        <div class="tl-body">Surfaced by a full audit of every RLS rule in the schema, not just this file: the original (0007) DELETE policy was <code>user_id&nbsp;=&nbsp;auth.uid()&nbsp;OR&nbsp;auth.uid()&nbsp;&lt;&gt;&nbsp;item_owner</code> &mdash; no group or claim-ownership check at all. Confirmed live: had an uninvolved third group member delete another member's claim outright. That's a standing end-run around every "first claim wins" guarantee above &mdash; delete, then re-insert.</div>
+      </div>
+      <div class="tl-item fix">
+        <div class="tl-num">&check;</div>
+        <div class="tl-head"><span class="tl-title">Tightened DELETE to match UPDATE</span><span class="tag fix">Fixed</span></div>
+        <div class="tl-body">Now <code>user_id&nbsp;=&nbsp;auth.uid()</code> only &mdash; a claim can only be removed by whoever placed it. Confirmed against the frontend first: the claim button is already disabled for anyone but the row's own claimant, so no real flow depended on the looser rule.</div>
+      </div>
+
     </div>
   </section>
 
@@ -449,7 +461,7 @@
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Actor</th><th>View (select)</th><th>Claim (insert)</th><th>Change a claim (update)</th></tr>
+          <tr><th>Actor</th><th>View (select)</th><th>Claim (insert)</th><th>Change a claim (update)</th><th>Remove a claim (delete)</th></tr>
         </thead>
         <tbody>
           <tr>
@@ -457,10 +469,12 @@
             <td><span class="pill allow">Allowed</span><span class="pill-note">sees who's claimed what, unconditionally</span></td>
             <td><span class="pill cond">If unclaimed</span><span class="pill-note">can set the first status</span></td>
             <td><span class="pill deny">Own rows only</span><span class="pill-note">can't touch a claim someone else made</span></td>
+            <td><span class="pill deny">Own rows only</span><span class="pill-note">can't remove a claim someone else made</span></td>
           </tr>
           <tr>
             <td class="actor">Item owner<span class="sub">on a regular list</span></td>
             <td><span class="pill deny">Blocked</span><span class="pill-note">surprise stays protected</span></td>
+            <td><span class="pill deny">Blocked</span></td>
             <td><span class="pill deny">Blocked</span></td>
             <td><span class="pill deny">Blocked</span></td>
           </tr>
@@ -469,15 +483,18 @@
             <td><span class="pill cond">If group-connected</span></td>
             <td><span class="pill cond">If unclaimed &amp; group-connected</span></td>
             <td><span class="pill allow">Allowed</span><span class="pill-note">their own claim only</span></td>
+            <td><span class="pill allow">Allowed</span><span class="pill-note">unclaim their own item</span></td>
           </tr>
           <tr>
             <td class="actor">Other group member</td>
             <td><span class="pill cond">If group-connected</span></td>
             <td><span class="pill deny">Blocked once claimed</span><span class="pill-note">PK conflict routes to update, which denies</span></td>
             <td><span class="pill deny">Blocked</span></td>
+            <td><span class="pill deny">Blocked</span><span class="pill-note">tightened &mdash; see timeline step 5</span></td>
           </tr>
           <tr>
             <td class="actor">Unrelated user</td>
+            <td><span class="pill deny">Blocked</span></td>
             <td><span class="pill deny">Blocked</span></td>
             <td><span class="pill deny">Blocked</span></td>
             <td><span class="pill deny">Blocked</span></td>
@@ -510,7 +527,7 @@
         <span class="fstat new">+</span>
         <div>
           <div class="fpath">volumes/db/giftamizer/0012-child-list-item-status.sql</div>
-          <div class="fdesc">New. Defines <code>is_child_list_item()</code>, extends <code>can_view_item_status()</code>, replaces the SELECT and INSERT policies on <code>items_status</code>. UPDATE and DELETE deliberately left untouched.</div>
+          <div class="fdesc">New. Defines <code>is_child_list_item()</code>, extends <code>can_view_item_status()</code>, replaces the SELECT, INSERT, and (after the audit) DELETE policies on <code>items_status</code>. UPDATE deliberately left untouched &mdash; it was already correct.</div>
         </div>
       </li>
       <li>
@@ -525,7 +542,7 @@
 
   <section>
     <p class="section-label">Verification</p>
-    <p class="lede">Confidence here comes from a clean-room test, not just re-reading the SQL: the running dev stack was fully torn down and rebuilt from scratch, so the only way 0012 could take effect is through the same path a real fresh install (or disaster-recovery restore) would use.</p>
+    <p class="lede">Confidence here comes from clean-room tests, not just re-reading the SQL: the dev stack was fully torn down and rebuilt from scratch, and every rule below was exercised as an actual authenticated request &mdash; impersonating real seeded users with RLS enforced, not a superuser read of the policy text.</p>
     <div class="verify-grid">
       <div class="vcard">
         <h3>Reset</h3>
@@ -545,14 +562,25 @@
           <li><span class="check">&check;</span> Policy set re-queried &amp; matched file exactly</li>
         </ul>
       </div>
+      <div class="vcard">
+        <h3>Impersonated RLS tests</h3>
+        <ul>
+          <li><span class="check">&check;</span> Member claims a child-list item &mdash; allowed</li>
+          <li><span class="check">&check;</span> Owner upsert over that claim &mdash; blocked</li>
+          <li><span class="check">&check;</span> Owner claims her own regular item &mdash; blocked</li>
+          <li><span class="check">&check;</span> Owner reads a regular item's claim &mdash; blocked</li>
+          <li><span class="check">&check;</span> Bystander deletes another's claim &mdash; blocked</li>
+          <li><span class="check">&check;</span> Claimant deletes their own claim &mdash; allowed</li>
+        </ul>
+      </div>
     </div>
-    <p class="pre-label">psql &middot; pg_policy on items_status, post-reseed</p>
+    <p class="pre-label">psql &middot; pg_policy on items_status, final state</p>
     <pre><code>polname                          | cmd | using / with check
 ---------------------------------+-----+---------------------------------------------------
 Allow select items_status        | r   | can_view_item_status(auth.uid(), item_id)
 Allow insert if can claim item   | a   | can_claim_item(...) OR is_child_list_item(...)
-Allow update items_status row    | w   | user_id = auth.uid()          <span class="cm">-- unchanged from 0007</span>
-Allow delete items_status row    | d   | user_id = auth.uid() OR ...   <span class="cm">-- unchanged, pre-existing</span></code></pre>
+Allow update items_status row    | w   | user_id = auth.uid()   <span class="cm">-- unchanged from 0007, already correct</span>
+Allow delete items_status row    | d   | user_id = auth.uid()   <span class="cm">-- tightened, see timeline step 5</span></code></pre>
     <div class="accounts">
       <span class="acct"><strong>carla@giftamizer.test</strong> &middot; owns both child lists</span>
       <span class="acct"><strong>alice</strong> / <strong>ben</strong> &middot; same groups, good for claim testing</span>
@@ -565,11 +593,11 @@ Allow delete items_status row    | d   | user_id = auth.uid() OR ...   <span cla
     <div class="open-list">
       <div class="open-item">
         <span class="mark">&mdash;</span>
-        <p><strong>DELETE policy is unchanged and a little odd:</strong> any authenticated user who isn't the item's owner can delete any claim row on that item, regardless of whether they placed it. Pre-existing behavior, not touched by this change, but worth a separate look.</p>
+        <p><strong>Frontend doesn't surface this yet.</strong> This is a backend-only change &mdash; the app's own-items query never joins <code>items_status</code> today, so nothing in the UI currently shows a child-list owner the claim data they can now read. That's a follow-up in the Giftamizer frontend repo.</p>
       </div>
       <div class="open-item">
         <span class="mark">&mdash;</span>
-        <p><strong>Frontend doesn't surface this yet.</strong> This is a backend-only change &mdash; the app's own-items query never joins <code>items_status</code> today, so nothing in the UI currently shows a child-list owner the claim data they can now read. That's a follow-up in the Giftamizer frontend repo.</p>
+        <p><strong><code>items_lists</code> doesn't verify item ownership on insert</strong> &mdash; a user can technically link an item_id they don't own into one of their own lists, since its INSERT policy only checks <code>user_id&nbsp;=&nbsp;auth.uid()</code> on the link row, not on the item. Low practical risk (item UUIDs aren't guessable), and <code>is_child_list_item()</code>'s own <code>i.user_id&nbsp;=&nbsp;userid</code> check already neutralizes it for claim status specifically &mdash; but the underlying gap is schema-wide, not something this change introduced or fully closes.</p>
       </div>
     </div>
   </section>
