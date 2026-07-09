@@ -1,0 +1,579 @@
+<title>Child-List Claim Visibility — RLS Change Review</title>
+<style>
+  :root {
+    --bg: #F1F3EE;
+    --surface: #FFFFFF;
+    --surface-2: #E9ECE5;
+    --ink: #16241C;
+    --ink-soft: #4B5B50;
+    --ink-faint: #7C8B80;
+    --accent: #A9782E;
+    --accent-ink: #6E4E1D;
+    --good: #3F7A5C;
+    --good-bg: #E4EFE7;
+    --bad: #B0463C;
+    --bad-bg: #F5E5E2;
+    --line: #D9DED4;
+    --line-strong: #C3CBBC;
+    --shadow: 0 1px 2px rgba(22, 36, 28, 0.06), 0 8px 24px -12px rgba(22, 36, 28, 0.12);
+
+    --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "URW Palladio L", Georgia, serif;
+    --font-body: "Charter", "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+    --font-ui: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "SF Mono", ui-monospace, "Cascadia Code", Consolas, "Roboto Mono", monospace;
+
+    --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+    --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10170F;
+      --surface: #17211B;
+      --surface-2: #1E2A22;
+      --ink: #E7ECE6;
+      --ink-soft: #A9B7AD;
+      --ink-faint: #75857A;
+      --accent: #D6A34C;
+      --accent-ink: #F0C778;
+      --good: #6FBF95;
+      --good-bg: #1B3327;
+      --bad: #E08376;
+      --bad-bg: #3A211D;
+      --line: #2A362E;
+      --line-strong: #3A473D;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10170F; --surface: #17211B; --surface-2: #1E2A22;
+    --ink: #E7ECE6; --ink-soft: #A9B7AD; --ink-faint: #75857A;
+    --accent: #D6A34C; --accent-ink: #F0C778;
+    --good: #6FBF95; --good-bg: #1B3327;
+    --bad: #E08376; --bad-bg: #3A211D;
+    --line: #2A362E; --line-strong: #3A473D;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  }
+  :root[data-theme="light"] {
+    --bg: #F1F3EE; --surface: #FFFFFF; --surface-2: #E9ECE5;
+    --ink: #16241C; --ink-soft: #4B5B50; --ink-faint: #7C8B80;
+    --accent: #A9782E; --accent-ink: #6E4E1D;
+    --good: #3F7A5C; --good-bg: #E4EFE7;
+    --bad: #B0463C; --bad-bg: #F5E5E2;
+    --line: #D9DED4; --line-strong: #C3CBBC;
+    --shadow: 0 1px 2px rgba(22, 36, 28, 0.06), 0 8px 24px -12px rgba(22, 36, 28, 0.12);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--accent); color: var(--surface); }
+
+  .page {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: var(--sp-8) var(--sp-5) 96px;
+  }
+
+  h1, h2, h3 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; color: var(--ink); }
+  a { color: var(--accent-ink); }
+
+  /* ---------- Header ---------- */
+  .eyebrow {
+    font-family: var(--font-ui);
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 var(--sp-3);
+  }
+  h1.title {
+    font-size: 2.1rem;
+    line-height: 1.15;
+    margin: 0 0 var(--sp-3);
+    letter-spacing: -0.01em;
+  }
+  .dek {
+    font-size: 1.0625rem;
+    color: var(--ink-soft);
+    margin: 0 0 var(--sp-5);
+    max-width: 60ch;
+  }
+  .meta-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-5);
+    padding-top: var(--sp-4);
+    border-top: 1px solid var(--line);
+    font-family: var(--font-ui);
+    font-size: 0.8125rem;
+    color: var(--ink-soft);
+  }
+  .meta-strip dt { color: var(--ink-faint); margin: 0; }
+  .meta-strip dd { margin: 2px 0 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .meta-item { display: flex; flex-direction: column; gap: 1px; }
+
+  /* ---------- Sections ---------- */
+  section { margin-top: var(--sp-8); }
+  .section-label {
+    font-family: var(--font-ui);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin: 0 0 var(--sp-4);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+  .section-label::before {
+    content: "";
+    width: 14px; height: 1px;
+    background: var(--accent);
+  }
+  h2 { font-size: 1.5rem; margin: 0 0 var(--sp-3); }
+  p { margin: 0 0 var(--sp-4); }
+  .lede { color: var(--ink-soft); }
+
+  /* ---------- TL;DR panel ---------- */
+  .tldr {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: var(--sp-5);
+    box-shadow: var(--shadow);
+    display: grid;
+    gap: var(--sp-4);
+  }
+  .tldr-row { display: flex; gap: var(--sp-4); align-items: baseline; }
+  .tldr-row .k {
+    font-family: var(--font-ui);
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    width: 88px;
+    flex: none;
+    padding-top: 3px;
+  }
+  .tldr-row .v { color: var(--ink); font-size: 1rem; }
+  .tldr-row .v strong { color: var(--ink); }
+
+  /* ---------- Quote ---------- */
+  blockquote {
+    margin: 0 0 var(--sp-6);
+    padding: var(--sp-4) var(--sp-5);
+    border-left: 2px solid var(--accent);
+    background: var(--surface-2);
+    border-radius: 0 4px 4px 0;
+    font-family: var(--font-body);
+    font-style: italic;
+    color: var(--ink-soft);
+    font-size: 1.0625rem;
+  }
+  blockquote cite {
+    display: block;
+    margin-top: var(--sp-2);
+    font-family: var(--font-ui);
+    font-style: normal;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  /* ---------- Timeline ---------- */
+  .timeline { position: relative; padding-left: var(--sp-7); }
+  .timeline::before {
+    content: "";
+    position: absolute;
+    left: 15px;
+    top: 6px;
+    bottom: 6px;
+    width: 1px;
+    background: var(--line-strong);
+  }
+  .tl-item { position: relative; padding-bottom: var(--sp-6); }
+  .tl-item:last-child { padding-bottom: 0; }
+  .tl-num {
+    position: absolute;
+    left: calc(-1 * var(--sp-7));
+    top: 0;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-ui);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  .tl-item.bug .tl-num { border-color: var(--bad); color: var(--bad); }
+  .tl-item.fix .tl-num { border-color: var(--good); color: var(--good); background: var(--good-bg); }
+  .tl-head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-2); }
+  .tl-title { font-family: var(--font-ui); font-weight: 600; font-size: 0.9375rem; color: var(--ink); }
+  .tag {
+    font-family: var(--font-ui);
+    font-size: 0.6875rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 600;
+  }
+  .tag.bug { background: var(--bad-bg); color: var(--bad); }
+  .tag.fix { background: var(--good-bg); color: var(--good); }
+  .tag.neutral { background: var(--surface-2); color: var(--ink-soft); }
+  .tl-body { color: var(--ink-soft); font-size: 0.95rem; max-width: 58ch; }
+  .tl-body code { font-size: 0.85em; }
+
+  /* ---------- Code ---------- */
+  code {
+    font-family: var(--font-mono);
+    background: var(--surface-2);
+    padding: 0.1em 0.4em;
+    border-radius: 3px;
+    font-size: 0.88em;
+    color: var(--ink);
+  }
+  pre {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: var(--sp-4) var(--sp-5);
+    overflow-x: auto;
+    box-shadow: var(--shadow);
+    margin: 0 0 var(--sp-5);
+  }
+  pre code { background: none; padding: 0; border-radius: 0; }
+  .pre-label {
+    font-family: var(--font-ui);
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: var(--sp-2);
+  }
+  .kw { color: var(--accent-ink); }
+  .cm { color: var(--ink-faint); font-style: italic; }
+
+  /* ---------- Matrix table ---------- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; min-width: 620px; background: var(--surface); }
+  th, td { text-align: left; padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--line); vertical-align: top; }
+  thead th {
+    font-family: var(--font-ui);
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.actor { font-family: var(--font-ui); font-weight: 600; font-size: 0.875rem; color: var(--ink); white-space: nowrap; }
+  td.actor .sub { display: block; font-weight: 400; color: var(--ink-faint); font-size: 0.8125rem; margin-top: 2px; }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-ui);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .pill.allow { color: var(--good); }
+  .pill.allow::before { background: var(--good); }
+  .pill.deny { color: var(--ink-faint); }
+  .pill.deny::before { background: var(--ink-faint); }
+  .pill.cond { color: var(--accent-ink); }
+  .pill.cond::before { background: var(--accent); }
+  .pill-note { display: block; font-family: var(--font-body); font-weight: 400; color: var(--ink-soft); font-size: 0.8125rem; margin-top: 3px; }
+
+  /* ---------- Files changed ---------- */
+  .filelist { list-style: none; margin: 0 0 var(--sp-5); padding: 0; display: grid; gap: var(--sp-3); }
+  .filelist li {
+    display: flex; gap: var(--sp-4); align-items: baseline;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 4px;
+    padding: var(--sp-3) var(--sp-4);
+  }
+  .filelist .fstat {
+    font-family: var(--font-mono); font-size: 0.75rem; font-weight: 700;
+    width: 20px; flex: none; text-align: center; border-radius: 3px; padding: 2px 0;
+  }
+  .filelist .fstat.new { color: var(--good); background: var(--good-bg); }
+  .filelist .fstat.mod { color: var(--accent-ink); background: var(--surface-2); }
+  .filelist .fpath { font-family: var(--font-mono); font-size: 0.85rem; color: var(--ink); }
+  .filelist .fdesc { color: var(--ink-faint); font-size: 0.8125rem; margin-top: 2px; }
+
+  /* ---------- Verification ---------- */
+  .verify-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-5); margin-bottom: var(--sp-5); }
+  @media (max-width: 620px) { .verify-grid { grid-template-columns: 1fr; } }
+  .vcard { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: var(--sp-4); }
+  .vcard h3 { font-family: var(--font-ui); font-size: 0.8125rem; letter-spacing: 0.03em; margin: 0 0 var(--sp-2); color: var(--ink); }
+  .vcard ul { margin: 0; padding-left: 1.1em; color: var(--ink-soft); font-size: 0.875rem; }
+  .vcard li { margin-bottom: 4px; }
+  .check { color: var(--good); font-weight: 700; }
+
+  .accounts { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-5); }
+  .acct {
+    font-family: var(--font-mono); font-size: 0.8125rem;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 20px;
+    padding: 4px 12px; color: var(--ink-soft);
+  }
+  .acct strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------- Open items ---------- */
+  .open-list { display: grid; gap: var(--sp-3); }
+  .open-item {
+    display: flex; gap: var(--sp-3);
+    border: 1px solid var(--line); border-radius: 4px; padding: var(--sp-4);
+    background: var(--surface);
+  }
+  .open-item .mark { color: var(--accent); font-family: var(--font-ui); font-weight: 700; font-size: 0.9rem; flex: none; }
+  .open-item p { margin: 0; font-size: 0.9375rem; color: var(--ink-soft); }
+  .open-item strong { color: var(--ink); }
+
+  footer {
+    margin-top: var(--sp-8);
+    padding-top: var(--sp-5);
+    border-top: 1px solid var(--line);
+    font-family: var(--font-ui);
+    font-size: 0.75rem;
+    color: var(--ink-faint);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .tl-item { animation: rise 0.4s ease backwards; }
+    .tl-item:nth-child(1) { animation-delay: 0.02s; }
+    .tl-item:nth-child(2) { animation-delay: 0.06s; }
+    .tl-item:nth-child(3) { animation-delay: 0.10s; }
+    .tl-item:nth-child(4) { animation-delay: 0.14s; }
+    .tl-item:nth-child(5) { animation-delay: 0.18s; }
+    .tl-item:nth-child(6) { animation-delay: 0.22s; }
+    .tl-item:nth-child(7) { animation-delay: 0.26s; }
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+
+<div class="page">
+
+  <p class="eyebrow">Giftamizer-Supabase &middot; items_status row-level security</p>
+  <h1 class="title">Child-list claim visibility</h1>
+  <p class="dek">A review of the RLS change that lets a parent see and set claim status on their own "Display&nbsp;Separately" (child) lists, without opening a way to see or overwrite claims on anyone else's list &mdash; including their own.</p>
+  <dl class="meta-strip">
+    <div class="meta-item"><dt>Migration</dt><dd>0012-child-list-item-status.sql</dd></div>
+    <div class="meta-item"><dt>Iterations</dt><dd>4 revisions, 2 confirmed bugs</dd></div>
+    <div class="meta-item"><dt>Verified</dt><dd>full local reset + reseed</dd></div>
+    <div class="meta-item"><dt>Status</dt><dd style="color: var(--good);">Applied &amp; matches fresh install</dd></div>
+  </dl>
+
+  <section style="margin-top: var(--sp-7);">
+    <div class="tldr">
+      <div class="tldr-row"><span class="k">Result</span><span class="v">The owner of a child list can now <strong>see who's claimed what</strong> and <strong>make the first claim</strong> on their own child-list items. They can never see or touch claims on a regular list, and can never overwrite a claim someone else already made &mdash; even on their own child's list.</span></div>
+      <div class="tldr-row"><span class="k">Why it took 4 passes</span><span class="v">The first version only opened SELECT + UPDATE. Testing surfaced two real gaps: claiming actually needs INSERT too, and granting UPDATE by ownership (rather than by who holds the claim) let an owner silently steal another member's claim. Both are fixed in the final file.</span></div>
+    </div>
+  </section>
+
+  <section>
+    <p class="section-label">The request</p>
+    <blockquote>
+      "It would be helpful to see what people are getting the kids, sometimes I want to remove an item and give the idea to someone else. But I don't know if someone is already getting it for them."
+      <cite>Original feedback &middot; prompted the RLS change</cite>
+    </blockquote>
+    <p class="lede">Translated into policy: item status is hidden from an item's owner by design &mdash; that's what keeps your own gift claims a surprise. But on a child list, the "owner" isn't the recipient, so that surprise-protection was just getting in the way.</p>
+  </section>
+
+  <section>
+    <p class="section-label">How it was built</p>
+    <div class="timeline">
+
+      <div class="tl-item">
+        <div class="tl-num">1</div>
+        <div class="tl-head"><span class="tl-title">Added the child-list gate</span><span class="tag neutral">Built</span></div>
+        <div class="tl-body">New function <code>is_child_list_item(item, user)</code> &mdash; true only when the caller owns <em>both</em> the item and a <code>child_list&nbsp;=&nbsp;true</code> list it's linked to. Wired into SELECT and UPDATE on <code>items_status</code>.</div>
+      </div>
+
+      <div class="tl-item bug">
+        <div class="tl-num">2</div>
+        <div class="tl-head"><span class="tl-title">Migration silently skipped on fresh installs</span><span class="tag bug">Bug found</span></div>
+        <div class="tl-body">Each schema file is bind-mounted individually in <code>docker-compose.yml</code> &mdash; the new file was never added to that list, so a clean install would never see it at all.</div>
+      </div>
+      <div class="tl-item fix">
+        <div class="tl-num">&check;</div>
+        <div class="tl-head"><span class="tl-title">Mounted the file</span><span class="tag fix">Fixed</span></div>
+        <div class="tl-body">Added the bind-mount line; hand-applied the SQL to the running dev database via <code>psql</code> in the meantime.</div>
+      </div>
+
+      <div class="tl-item bug">
+        <div class="tl-num">3</div>
+        <div class="tl-head"><span class="tl-title">Claiming as owner returned 42501</span><span class="tag bug">Bug found</span></div>
+        <div class="tl-body">The app claims via <code>upsert()</code>. With no existing row, that's an INSERT &mdash; still gated by <code>can_claim_item()</code>, which unconditionally refuses the item's own owner.</div>
+      </div>
+      <div class="tl-item fix">
+        <div class="tl-num">&check;</div>
+        <div class="tl-head"><span class="tl-title">Extended INSERT with the same gate</span><span class="tag fix">Fixed</span></div>
+        <div class="tl-body">Added <code>OR is_child_list_item(...)</code> to the INSERT policy so the owner can set the <em>first</em> status on their own child-list items.</div>
+      </div>
+
+      <div class="tl-item bug">
+        <div class="tl-num">4</div>
+        <div class="tl-head"><span class="tl-title">Owner's claim overwrote another member's claim</span><span class="tag bug">Bug found</span></div>
+        <div class="tl-body">Caught by hand: claimed an item as one member, then clicked "claim" as the child-list owner in another window &mdash; it silently replaced the first member's row. Cause: <code>item_id</code> is the table's primary key, so an upsert on an already-claimed item routes to UPDATE, not INSERT &mdash; and UPDATE was gated purely by ownership, never by who currently held the claim.</div>
+      </div>
+      <div class="tl-item fix">
+        <div class="tl-num">&check;</div>
+        <div class="tl-head"><span class="tl-title">Reverted UPDATE to owner-blind</span><span class="tag fix">Fixed</span></div>
+        <div class="tl-body">Removed the child-list clause from UPDATE entirely. The owner can now only ever modify a claim row <em>they themselves created</em> &mdash; identical to any other claimant. First claim always wins.</div>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <p class="section-label">Final access rules &middot; items_status</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Actor</th><th>View (select)</th><th>Claim (insert)</th><th>Change a claim (update)</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="actor">Child-list owner<span class="sub">on their own child list</span></td>
+            <td><span class="pill allow">Allowed</span><span class="pill-note">sees who's claimed what, unconditionally</span></td>
+            <td><span class="pill cond">If unclaimed</span><span class="pill-note">can set the first status</span></td>
+            <td><span class="pill deny">Own rows only</span><span class="pill-note">can't touch a claim someone else made</span></td>
+          </tr>
+          <tr>
+            <td class="actor">Item owner<span class="sub">on a regular list</span></td>
+            <td><span class="pill deny">Blocked</span><span class="pill-note">surprise stays protected</span></td>
+            <td><span class="pill deny">Blocked</span></td>
+            <td><span class="pill deny">Blocked</span></td>
+          </tr>
+          <tr>
+            <td class="actor">Claimant<span class="sub">holds the status row</span></td>
+            <td><span class="pill cond">If group-connected</span></td>
+            <td><span class="pill cond">If unclaimed &amp; group-connected</span></td>
+            <td><span class="pill allow">Allowed</span><span class="pill-note">their own claim only</span></td>
+          </tr>
+          <tr>
+            <td class="actor">Other group member</td>
+            <td><span class="pill cond">If group-connected</span></td>
+            <td><span class="pill deny">Blocked once claimed</span><span class="pill-note">PK conflict routes to update, which denies</span></td>
+            <td><span class="pill deny">Blocked</span></td>
+          </tr>
+          <tr>
+            <td class="actor">Unrelated user</td>
+            <td><span class="pill deny">Blocked</span></td>
+            <td><span class="pill deny">Blocked</span></td>
+            <td><span class="pill deny">Blocked</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <p class="section-label">The core gate</p>
+    <p class="pre-label">is_child_list_item(itemid, userid)</p>
+    <pre><code><span class="kw">select exists</span> (
+  <span class="kw">select</span> 1
+  <span class="kw">from</span> items i
+  <span class="kw">join</span> items_lists il <span class="kw">on</span> il.item_id = i.id
+  <span class="kw">join</span> lists l <span class="kw">on</span> l.id = il.list_id <span class="kw">and</span> l.user_id = il.user_id
+  <span class="kw">where</span> i.id = itemid
+    <span class="kw">and</span> i.user_id = userid   <span class="cm">-- must actually own the item</span>
+    <span class="kw">and</span> l.user_id = userid   <span class="cm">-- must actually own the list</span>
+    <span class="kw">and</span> l.child_list = <span class="kw">true</span>
+);</code></pre>
+    <p class="lede">Both ownership checks matter: without <code>i.user_id&nbsp;=&nbsp;userid</code>, anyone able to link an arbitrary item into their own child list via <code>items_lists</code> could have used this as a side door into someone else's claim data.</p>
+  </section>
+
+  <section>
+    <p class="section-label">Files changed</p>
+    <ul class="filelist">
+      <li>
+        <span class="fstat new">+</span>
+        <div>
+          <div class="fpath">volumes/db/giftamizer/0012-child-list-item-status.sql</div>
+          <div class="fdesc">New. Defines <code>is_child_list_item()</code>, extends <code>can_view_item_status()</code>, replaces the SELECT and INSERT policies on <code>items_status</code>. UPDATE and DELETE deliberately left untouched.</div>
+        </div>
+      </li>
+      <li>
+        <span class="fstat mod">~</span>
+        <div>
+          <div class="fpath">docker-compose.yml</div>
+          <div class="fdesc">+1 line &mdash; bind-mounts 0012 into <code>/docker-entrypoint-initdb.d</code> so it actually runs on a fresh install, not just the already-patched dev database.</div>
+        </div>
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <p class="section-label">Verification</p>
+    <p class="lede">Confidence here comes from a clean-room test, not just re-reading the SQL: the running dev stack was fully torn down and rebuilt from scratch, so the only way 0012 could take effect is through the same path a real fresh install (or disaster-recovery restore) would use.</p>
+    <div class="verify-grid">
+      <div class="vcard">
+        <h3>Reset</h3>
+        <ul>
+          <li><span class="check">&check;</span> Stack stopped, volumes removed</li>
+          <li><span class="check">&check;</span> Bind-mounted dev data cleared</li>
+          <li><span class="check">&check;</span> .env restored to example defaults</li>
+          <li><span class="check">&check;</span> Stack rebuilt &mdash; 12 / 12 services healthy</li>
+        </ul>
+      </div>
+      <div class="vcard">
+        <h3>Reseed</h3>
+        <ul>
+          <li><span class="check">&check;</span> 5 users, 2 groups, 30 items</li>
+          <li><span class="check">&check;</span> 2 child lists created (owner: carla)</li>
+          <li><span class="check">&check;</span> Lists published across both groups</li>
+          <li><span class="check">&check;</span> Policy set re-queried &amp; matched file exactly</li>
+        </ul>
+      </div>
+    </div>
+    <p class="pre-label">psql &middot; pg_policy on items_status, post-reseed</p>
+    <pre><code>polname                          | cmd | using / with check
+---------------------------------+-----+---------------------------------------------------
+Allow select items_status        | r   | can_view_item_status(auth.uid(), item_id)
+Allow insert if can claim item   | a   | can_claim_item(...) OR is_child_list_item(...)
+Allow update items_status row    | w   | user_id = auth.uid()          <span class="cm">-- unchanged from 0007</span>
+Allow delete items_status row    | d   | user_id = auth.uid() OR ...   <span class="cm">-- unchanged, pre-existing</span></code></pre>
+    <div class="accounts">
+      <span class="acct"><strong>carla@giftamizer.test</strong> &middot; owns both child lists</span>
+      <span class="acct"><strong>alice</strong> / <strong>ben</strong> &middot; same groups, good for claim testing</span>
+      <span class="acct">password for all seeded users: <strong>Password123!</strong></span>
+    </div>
+  </section>
+
+  <section>
+    <p class="section-label">Not in scope</p>
+    <div class="open-list">
+      <div class="open-item">
+        <span class="mark">&mdash;</span>
+        <p><strong>DELETE policy is unchanged and a little odd:</strong> any authenticated user who isn't the item's owner can delete any claim row on that item, regardless of whether they placed it. Pre-existing behavior, not touched by this change, but worth a separate look.</p>
+      </div>
+      <div class="open-item">
+        <span class="mark">&mdash;</span>
+        <p><strong>Frontend doesn't surface this yet.</strong> This is a backend-only change &mdash; the app's own-items query never joins <code>items_status</code> today, so nothing in the UI currently shows a child-list owner the claim data they can now read. That's a follow-up in the Giftamizer frontend repo.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>Giftamizer&#8209;Supabase &middot; local dev review &middot; 2026&#8209;07&#8209;09</footer>
+
+</div>

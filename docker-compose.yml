@@ -447,6 +447,7 @@ services:
       - ./volumes/db/giftamizer/0009-dashboard.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0009-dashboard.sql:Z
       - ./volumes/db/giftamizer/0010-cascade-delete-files.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0010-cascade-delete-files.sql:Z
       - ./volumes/db/giftamizer/0011-private-storage-policies.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0011-private-storage-policies.sql:Z
+      - ./volumes/db/giftamizer/0012-child-list-item-status.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0012-child-list-item-status.sql:Z
 
       # Use named volume to persist pgsodium decryption key between restarts
       - db-config:/etc/postgresql-custom
