@@ -177,11 +177,13 @@ real failure the first time you see it.
 
 1. Generate the rclone remote config:
    ```bash
-   docker run --rm -it \
+   docker run --rm -it --entrypoint rclone \
      -v /giftamizer/backend/volumes/rclone:/root/.config/rclone \
-     mazzolino/restic:1.8.2 rclone config
+     mazzolino/restic:1.8.2 config
    ```
-   (or install `rclone` on the host directly and run `rclone config`)
+   (`--entrypoint rclone` is required — without it the image tries to
+   initialise a restic repository instead of running rclone. Or install
+   `rclone` on the host directly and run `rclone config`.)
 2. In `.env`:
    ```
    RESTIC_PASSWORD=<generated above>
@@ -198,7 +200,47 @@ is set to (defaults to UTC if `TZ` isn't set in `.env`).
 
 Restore procedure is documented in the backend repo's
 [README.md](README.md#offsite-backup-optional-recommended-for-production)
-under "Offsite backup" / "Restoring".
+under "Offsite backup" / "Restoring". For status checks, listing backups,
+manual backups and restores, see [backup.md](backup.md).
+
+## Maintenance
+
+### Container logs and the `urlmetadata` leak
+
+- **Log rotation.** Every service in `docker-compose.yml` uses the shared
+  `x-logging` block (`json-file`, 10 MB x 3 files). Docker's default never
+  rotates, and unrotated logs reached hundreds of MB on the pooler alone.
+- **`urlmetadata` scratch space.** The image launches a headless Chrome per
+  scrape and never removes its profile directory under `/tmp` or reaps its
+  child processes; on production this reached 16 GB inside the container's
+  writable layer (on the host disk) over four months. `/tmp` is now a 2 GB
+  tmpfs, so it can no longer fill the disk. It's emptied whenever the
+  container restarts, so restart it weekly with a host cron entry
+  (`crontab -e` as a user in the `docker` group):
+
+  ```
+  0 4 * * 0 /usr/bin/docker restart giftamizer-urlmetadata >/dev/null 2>&1
+  ```
+
+  Without the restart, scraping starts failing once the 2 GB fills (roughly
+  every few weeks at current traffic).
+
+**Applying this to an existing server** (the settings only take effect when
+containers are recreated):
+
+```bash
+cd /giftamizer/backend
+git pull
+docker compose up -d        # recreates every service once: expect ~1 minute of downtime
+docker ps -s --format 'table {{.Names}}\t{{.Size}}'   # urlmetadata should now show a tiny writable layer
+df -h /                     # the old ~16 GB layer and old logs are freed
+```
+
+`docker compose up -d` also fixes `urlmetadata` being left behind by
+`down`/`up`: it used to sit behind the `giftamizer-extras` profile, which
+`.env` doesn't enable on production, so it only kept running because it had
+been started earlier. If `git pull` complains about local changes, they are
+file-mode-only changes on a few scripts (`git config core.fileMode false`).
 
 ## Optional extras
 
@@ -272,6 +314,11 @@ services:
     image: <DOCKERHUB_NAMESPACE>/giftamizer-frontend:latest
     container_name: giftamizer-frontend
     restart: unless-stopped
+    logging: # same rotation as the backend stack; Docker's default never rotates
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "8081:80"
 ```
@@ -299,6 +346,32 @@ docker compose up -d urlmetadata   # if you're using the explicit-start approach
 Schema changes ship as new `volumes/db/giftamizer/00NN-*.sql` files upstream
 and must be applied to the running prod DB by hand (via Studio's SQL editor
 or `psql`) — see the backend repo's README "Updating production" section.
+
+**Item multi-image migration (`0014`/`0015` + `scripts/migrate-item-images.mjs`)
+is a multi-step exception to the usual "just apply the SQL" flow** — it also
+moves files in Storage, so the order matters. **Plan a short maintenance
+window** — from step 1 until step 3 finishes, the *old* frontend can't save
+item images (its flat-path uploads are rejected by the new storage policies,
+after the item row itself was already saved) and any image it did manage to
+save would only set `image_token`, so it would be missed by the migration.
+Stop (or put up a maintenance page in front of) the old frontend container
+before step 1, and only start the new one in step 3:
+
+1. Apply `0014-item-multi-images.sql` (adds `item_images`, switches the
+   `items` bucket's RLS to the new `{itemId}/{imageId}` path shape, and
+   backfills one `item_images` row per item that currently has an image).
+2. Run `scripts/migrate-item-images.mjs` (needs `SUPABASE_URL` +
+   `SERVICE_ROLE_KEY` env vars, no npm install required — see the script's
+   header comment) to physically move each existing item image object to
+   its new nested path. It is re-runnable, checks what actually exists in
+   storage, and reports `missing` for backfilled rows that never had a file
+   (pass `--prune-missing` to delete those rows). Only continue once it ends
+   with `failed=0`. **Do not skip this or reorder it after step 3** —
+   after step 1, nothing serves the old flat path anymore, so any item
+   images not yet moved will 404 until this finishes.
+3. Deploy the new frontend.
+4. Once 1-3 are confirmed working, apply `0015-item-images-cleanup.sql`
+   (drops the now-unused `items.image_token` column and its trigger).
 
 **Frontend:** rebuild the image (see "Build & push" above) whenever the
 frontend repo changes or the backend's public URL/keys change, push, then

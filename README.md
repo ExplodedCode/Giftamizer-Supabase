@@ -190,8 +190,9 @@ Before starting them:
 
 1. Create `./volumes/rclone/rclone.conf` by running `rclone config` and following the prompts for whichever backend you're using. If you don't have `rclone` installed locally, run it via the same image instead:
    ```sh
-   docker run --rm -it -v "$(pwd)/volumes/rclone:/root/.config/rclone" mazzolino/restic:1.8.2 rclone config
+   docker run --rm -it --entrypoint rclone -v "$(pwd)/volumes/rclone:/root/.config/rclone" mazzolino/restic:1.8.2 config
    ```
+   (`--entrypoint rclone` is required: the image's own entrypoint tries to initialise a restic repository and ignores any command you pass. Same for every `rclone` command below; `restic` commands run with the default entrypoint and take only the restic arguments, e.g. `restore ...`, not `restic restore ...`.)
 2. In `.env` (see `.env.example` for the full list):
    - `RESTIC_PASSWORD` — encrypts the local repository. Generate with `openssl rand -base64 32` and **do not lose it** — without it, the backups (local or offsite) are unrecoverable.
    - `RCLONE_REMOTE` — the remote name/path from step 1, e.g. `b2:my-bucket-name/giftamizer` or `r2:my-bucket-name/giftamizer`.
@@ -208,16 +209,16 @@ docker run --rm -it \
   -e RESTIC_REPOSITORY=/data/restic-repo -e RESTIC_PASSWORD=<your-password> \
   -v "$(pwd)/volumes/restic-repo:/data/restic-repo" \
   -v "$(pwd)/restore:/restore" \
-  mazzolino/restic:1.8.2 restic restore latest --target /restore
+  mazzolino/restic:1.8.2 restore latest --target /restore
 ```
 
 If the host itself was lost, pull the repository back down from the remote first:
 
 ```sh
-docker run --rm -it \
+docker run --rm -it --entrypoint rclone \
   -v "$(pwd)/volumes/rclone:/root/.config/rclone" \
   -v "$(pwd)/volumes/restic-repo:/data/restic-repo" \
-  mazzolino/restic:1.8.2 rclone sync "<RCLONE_REMOTE value>" /data/restic-repo
+  mazzolino/restic:1.8.2 sync "<RCLONE_REMOTE value>" /data/restic-repo
 ```
 
 then run the `restic restore` command above. Either way this pulls the
