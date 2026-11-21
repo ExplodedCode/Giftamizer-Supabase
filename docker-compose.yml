@@ -470,6 +470,7 @@ services:
       - ./volumes/db/giftamizer/0013-group-member-access-fixes.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0013-group-member-access-fixes.sql:Z
       - ./volumes/db/giftamizer/0014-item-multi-images.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0014-item-multi-images.sql:Z
       - ./volumes/db/giftamizer/0015-item-images-cleanup.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0015-item-images-cleanup.sql:Z
+      - ./volumes/db/giftamizer/0016-activity-feed.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0016-activity-feed.sql:Z
 
       # Use named volume to persist pgsodium decryption key between restarts
       - db-config:/etc/postgresql-custom

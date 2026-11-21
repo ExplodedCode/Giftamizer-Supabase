@@ -92,6 +92,18 @@ share the password `Password123!`. Requires Node 18+ and a fresh database —
 re-running against already-seeded data will fail on duplicate emails; reset
 first (`./reset.sh` / `.\reset.ps1`) if you need to start over.
 
+The script also seeds the Feed. The feed is filled by database triggers
+(`0016-activity-feed.sql`), so rather than inserting activity rows the script
+performs real actions as different users — editing items, claiming then
+archiving one, leaving and rejoining a group, promoting a co-owner, renaming a
+group, drawing Secret Santa, changing a bio and avatar — and then back-dates
+the rows the triggers logged so the feed reads like two weeks of history (about
+60 events, enough for a second page). It also sets each user's `feed_seen_at`
+so some users have unread badges. A user never sees their own events, so log in
+as a few different seeded users to see it. Claims are private: only Alice
+(who claimed Ben's item) sees it flagged "You claimed this", and only Carla
+sees that Diego removed the item she claimed.
+
 Stop the stack with:
 
 ```sh
