@@ -13,12 +13,22 @@
 
 name: supabase
 
+# Cap container logs. Docker's default json-file driver never rotates, so busy
+# services (pooler, kong, frontend) grow their logs without bound on the host disk.
+# Applied to every service below via `logging: *default-logging`.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   studio:
     container_name: supabase-studio
     image: supabase/studio:2026.06.03-sha-0bca601
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test:
         [
@@ -72,6 +82,7 @@ services:
     container_name: supabase-kong
     image: kong/kong:3.9.1
     restart: unless-stopped
+    logging: *default-logging
     networks:
       default:
         aliases:
@@ -115,6 +126,7 @@ services:
     container_name: supabase-auth
     image: supabase/gotrue:v2.189.0
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test:
         [
@@ -207,6 +219,7 @@ services:
     container_name: supabase-rest
     image: postgrest/postgrest:v14.12
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       db:
         # Disable this if you are using an external Postgres database
@@ -238,6 +251,7 @@ services:
     container_name: realtime-dev.supabase-realtime
     image: supabase/realtime:v2.102.3
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       db:
         # Disable this if you are using an external Postgres database
@@ -284,6 +298,7 @@ services:
     container_name: supabase-storage
     image: supabase/storage-api:v1.60.4
     restart: unless-stopped
+    logging: *default-logging
     volumes:
       - ./volumes/storage:/var/lib/storage:z
     healthcheck:
@@ -334,6 +349,7 @@ services:
     container_name: supabase-imgproxy
     image: darthsim/imgproxy:v3.30.1
     restart: unless-stopped
+    logging: *default-logging
     volumes:
       - ./volumes/storage:/var/lib/storage:z
     healthcheck:
@@ -358,6 +374,7 @@ services:
     container_name: supabase-meta
     image: supabase/postgres-meta:v0.96.6
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       db:
         # Disable this if you are using an external Postgres database
@@ -375,6 +392,7 @@ services:
     container_name: supabase-edge-functions
     image: supabase/edge-runtime:v1.74.0
     restart: unless-stopped
+    logging: *default-logging
     volumes:
       - ./volumes/functions:/home/deno/functions:Z
       - deno-cache:/root/.cache/deno
@@ -414,6 +432,7 @@ services:
     # To upgrade an existing Postgres 15 database in place, see utils/upgrade-pg17.sh.
     image: supabase/postgres:17.6.1.136
     restart: unless-stopped
+    logging: *default-logging
     volumes:
       - ./volumes/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:Z
       # supabase/postgres:17.x no longer bundles storage.buckets/storage.objects table
@@ -498,6 +517,7 @@ services:
     container_name: supabase-db-backup
     image: prodrigestivill/postgres-backup-local:17
     restart: unless-stopped
+    logging: *default-logging
     profiles: ["backup"]
     depends_on:
       db:
@@ -532,6 +552,7 @@ services:
     container_name: supabase-restic-backup
     image: mazzolino/restic:1.8.2
     restart: unless-stopped
+    logging: *default-logging
     profiles: ["restic-backup"]
     volumes:
       - ./backups:/data/backups:ro
@@ -564,6 +585,7 @@ services:
     container_name: supabase-restic-prune
     image: mazzolino/restic:1.8.2
     restart: unless-stopped
+    logging: *default-logging
     profiles: ["restic-backup"]
     volumes:
       - ./volumes/restic-repo:/data/restic-repo
@@ -583,6 +605,7 @@ services:
     container_name: supabase-pooler
     image: supabase/supavisor:2.9.5
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - ${POSTGRES_PORT}:5432
       - ${POOLER_PROXY_PORT_TRANSACTION}:6543
@@ -640,6 +663,7 @@ services:
     container_name: giftamizer-smtp2graph
     image: evantrow/smtp2graph:latest@sha256:01adf4ae92ddf7fe04125c2e5de52b427215f2fc76e96725a7a03a180e249c11
     restart: unless-stopped
+    logging: *default-logging
     profiles: ["giftamizer-extras"]
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "465"]
@@ -667,7 +691,16 @@ services:
     container_name: giftamizer-urlmetadata
     image: explodedcode/urlmetadata:latest@sha256:cdd26d3af0d660a1faef5a6ff9782ca1711524c6fbcc7de3d725e999e8651675
     restart: unless-stopped
+    logging: *default-logging
     # No profile: runs in every environment (needed by the url-metadata edge function).
+    # The image starts a headless Chrome per scrape and never deletes its profile
+    # directory under /tmp or reaps its child processes (observed: 16 GB of
+    # puppeteer_dev_chrome_profile-* dirs in the container's writable layer after four
+    # months, which lives on the host disk). A size-capped tmpfs bounds that: it can no
+    # longer fill the disk, and it is emptied whenever the container restarts. Restart
+    # it weekly (see "Maintenance" in deploy.md) so the cap is never reached.
+    tmpfs:
+      - /tmp:rw,exec,nosuid,size=2g
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5500/"]
       timeout: 5s

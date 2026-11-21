@@ -200,7 +200,47 @@ is set to (defaults to UTC if `TZ` isn't set in `.env`).
 
 Restore procedure is documented in the backend repo's
 [README.md](README.md#offsite-backup-optional-recommended-for-production)
-under "Offsite backup" / "Restoring".
+under "Offsite backup" / "Restoring". For status checks, listing backups,
+manual backups and restores, see [backup.md](backup.md).
+
+## Maintenance
+
+### Container logs and the `urlmetadata` leak
+
+- **Log rotation.** Every service in `docker-compose.yml` uses the shared
+  `x-logging` block (`json-file`, 10 MB x 3 files). Docker's default never
+  rotates, and unrotated logs reached hundreds of MB on the pooler alone.
+- **`urlmetadata` scratch space.** The image launches a headless Chrome per
+  scrape and never removes its profile directory under `/tmp` or reaps its
+  child processes; on production this reached 16 GB inside the container's
+  writable layer (on the host disk) over four months. `/tmp` is now a 2 GB
+  tmpfs, so it can no longer fill the disk. It's emptied whenever the
+  container restarts, so restart it weekly with a host cron entry
+  (`crontab -e` as a user in the `docker` group):
+
+  ```
+  0 4 * * 0 /usr/bin/docker restart giftamizer-urlmetadata >/dev/null 2>&1
+  ```
+
+  Without the restart, scraping starts failing once the 2 GB fills (roughly
+  every few weeks at current traffic).
+
+**Applying this to an existing server** (the settings only take effect when
+containers are recreated):
+
+```bash
+cd /giftamizer/backend
+git pull
+docker compose up -d        # recreates every service once: expect ~1 minute of downtime
+docker ps -s --format 'table {{.Names}}\t{{.Size}}'   # urlmetadata should now show a tiny writable layer
+df -h /                     # the old ~16 GB layer and old logs are freed
+```
+
+`docker compose up -d` also fixes `urlmetadata` being left behind by
+`down`/`up`: it used to sit behind the `giftamizer-extras` profile, which
+`.env` doesn't enable on production, so it only kept running because it had
+been started earlier. If `git pull` complains about local changes, they are
+file-mode-only changes on a few scripts (`git config core.fileMode false`).
 
 ## Optional extras
 
