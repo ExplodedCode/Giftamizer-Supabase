@@ -314,6 +314,11 @@ services:
     image: <DOCKERHUB_NAMESPACE>/giftamizer-frontend:latest
     container_name: giftamizer-frontend
     restart: unless-stopped
+    logging: # same rotation as the backend stack; Docker's default never rotates
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "8081:80"
 ```
