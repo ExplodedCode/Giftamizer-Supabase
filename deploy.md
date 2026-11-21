@@ -300,6 +300,32 @@ Schema changes ship as new `volumes/db/giftamizer/00NN-*.sql` files upstream
 and must be applied to the running prod DB by hand (via Studio's SQL editor
 or `psql`) — see the backend repo's README "Updating production" section.
 
+**Item multi-image migration (`0014`/`0015` + `scripts/migrate-item-images.mjs`)
+is a multi-step exception to the usual "just apply the SQL" flow** — it also
+moves files in Storage, so the order matters. **Plan a short maintenance
+window** — from step 1 until step 3 finishes, the *old* frontend can't save
+item images (its flat-path uploads are rejected by the new storage policies,
+after the item row itself was already saved) and any image it did manage to
+save would only set `image_token`, so it would be missed by the migration.
+Stop (or put up a maintenance page in front of) the old frontend container
+before step 1, and only start the new one in step 3:
+
+1. Apply `0014-item-multi-images.sql` (adds `item_images`, switches the
+   `items` bucket's RLS to the new `{itemId}/{imageId}` path shape, and
+   backfills one `item_images` row per item that currently has an image).
+2. Run `scripts/migrate-item-images.mjs` (needs `SUPABASE_URL` +
+   `SERVICE_ROLE_KEY` env vars, no npm install required — see the script's
+   header comment) to physically move each existing item image object to
+   its new nested path. It is re-runnable, checks what actually exists in
+   storage, and reports `missing` for backfilled rows that never had a file
+   (pass `--prune-missing` to delete those rows). Only continue once it ends
+   with `failed=0`. **Do not skip this or reorder it after step 3** —
+   after step 1, nothing serves the old flat path anymore, so any item
+   images not yet moved will 404 until this finishes.
+3. Deploy the new frontend.
+4. Once 1-3 are confirmed working, apply `0015-item-images-cleanup.sql`
+   (drops the now-unused `items.image_token` column and its trigger).
+
 **Frontend:** rebuild the image (see "Build & push" above) whenever the
 frontend repo changes or the backend's public URL/keys change, push, then
 on the server:

@@ -194,6 +194,16 @@ async function seedImage({ bucket, objectName, jwt, seed, width, height, patchQu
   });
 }
 
+// Items don't use a *_token column - each image is its own item_images row,
+// stored at items/{itemId}/{imageId} (see 0014-item-multi-images.sql).
+async function seedItemImage({ item, position }) {
+  const imageId = crypto.randomUUID();
+  await withRetry(async () => {
+    await uploadImage('items', `${item.id}/${imageId}`, item.user.jwt, `item-${item.id}-${imageId}`, { width: 600, height: 600 });
+    await rest('POST', 'item_images', { jwt: item.user.jwt, body: { id: imageId, item_id: item.id, user_id: item.user.id, position } });
+  });
+}
+
 function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -319,12 +329,12 @@ async function main() {
     });
   }
 
-  console.log('Uploading item images (~70% of items)...');
+  console.log('Uploading item images (~70% of items, some with multiple)...');
   for (const it of pickSubset(items, 0.7)) {
-    await seedImage({
-      bucket: 'items', objectName: it.id, jwt: it.user.jwt, seed: `item-${it.id}`, width: 600, height: 600,
-      patchQuery: `items?id=eq.${it.id}`, tokenField: 'image_token',
-    });
+    const imageCount = Math.random() < 0.25 ? 2 + Math.floor(Math.random() * 2) : 1; // ~25% of those get 2-3 images
+    for (let position = 0; position < imageCount; position++) {
+      await seedItemImage({ item: it, position });
+    }
   }
 
   console.log('\nDone. Seeded users (password for all: ' + PASSWORD + '):');

@@ -449,6 +449,8 @@ services:
       - ./volumes/db/giftamizer/0011-private-storage-policies.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0011-private-storage-policies.sql:Z
       - ./volumes/db/giftamizer/0012-child-list-item-status.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0012-child-list-item-status.sql:Z
       - ./volumes/db/giftamizer/0013-group-member-access-fixes.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0013-group-member-access-fixes.sql:Z
+      - ./volumes/db/giftamizer/0014-item-multi-images.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0014-item-multi-images.sql:Z
+      - ./volumes/db/giftamizer/0015-item-images-cleanup.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0015-item-images-cleanup.sql:Z
 
       # Use named volume to persist pgsodium decryption key between restarts
       - db-config:/etc/postgresql-custom
@@ -665,7 +667,7 @@ services:
     container_name: giftamizer-urlmetadata
     image: explodedcode/urlmetadata:latest@sha256:cdd26d3af0d660a1faef5a6ff9782ca1711524c6fbcc7de3d725e999e8651675
     restart: unless-stopped
-    profiles: ["giftamizer-extras"]
+    # No profile: runs in every environment (needed by the url-metadata edge function).
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5500/"]
       timeout: 5s
