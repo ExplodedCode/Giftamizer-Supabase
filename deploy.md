@@ -177,11 +177,13 @@ real failure the first time you see it.
 
 1. Generate the rclone remote config:
    ```bash
-   docker run --rm -it \
+   docker run --rm -it --entrypoint rclone \
      -v /giftamizer/backend/volumes/rclone:/root/.config/rclone \
-     mazzolino/restic:1.8.2 rclone config
+     mazzolino/restic:1.8.2 config
    ```
-   (or install `rclone` on the host directly and run `rclone config`)
+   (`--entrypoint rclone` is required — without it the image tries to
+   initialise a restic repository instead of running rclone. Or install
+   `rclone` on the host directly and run `rclone config`.)
 2. In `.env`:
    ```
    RESTIC_PASSWORD=<generated above>
