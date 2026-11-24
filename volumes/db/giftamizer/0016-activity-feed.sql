@@ -284,7 +284,7 @@ CREATE TRIGGER activity_group_members AFTER INSERT OR UPDATE OR DELETE ON public
   FOR EACH ROW EXECUTE FUNCTION public.activity_group_members();
 
 -- ---------------------------------------------------------------------------
--- Triggers: lists_groups (a list was shared to a group)
+-- Triggers: lists_groups (a separate / child list was added to a group)
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.activity_lists_groups() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
@@ -292,6 +292,15 @@ AS $$
 DECLARE
   _list lists%ROWTYPE;
 BEGIN
+  SELECT * INTO _list FROM lists WHERE id = NEW.list_id AND user_id = NEW.user_id;
+
+  -- Only separate (child / "Display separately in groups") lists are news: they
+  -- appear as their own person in the group. Sharing an ordinary list adds no
+  -- new entry anywhere - its items are announced by item_added instead.
+  IF NOT COALESCE(_list.child_list, false) THEN
+    RETURN NEW;
+  END IF;
+
   -- lists linked automatically while joining a group are not "news"
   IF EXISTS (
     SELECT 1 FROM activity
@@ -300,9 +309,9 @@ BEGIN
   ) THEN
     RETURN NEW;
   END IF;
-  SELECT * INTO _list FROM lists WHERE id = NEW.list_id AND user_id = NEW.user_id;
+
   PERFORM log_activity('list_shared', NEW.user_id, NEW.group_id, NULL, NULL, NULL,
-    jsonb_build_object('list_id', NEW.list_id, 'list_name', _list.name, 'child_list', COALESCE(_list.child_list, false)),
+    jsonb_build_object('list_id', NEW.list_id, 'list_name', _list.name, 'child_list', true),
     NULL);
   RETURN NEW;
 END;
@@ -408,6 +417,8 @@ FROM (
         AND cardinality(vis.gids) > 0)
       OR (a.type = 'item_removed' AND a.audience_user_id = auth.uid())
       OR (a.type IN ('member_joined', 'member_left', 'member_promoted', 'list_shared', 'secret_santa_drawn', 'group_updated')
+        -- list_shared is only for separate (child) lists; this also hides older rows for ordinary lists
+        AND (a.type <> 'list_shared' OR a.payload->>'child_list' = 'true')
         AND EXISTS (
           SELECT 1 FROM group_members me
           WHERE me.group_id = a.group_id AND me.user_id = auth.uid() AND me.invite = false
