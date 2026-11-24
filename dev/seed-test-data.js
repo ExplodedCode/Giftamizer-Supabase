@@ -5,6 +5,15 @@
 // flow (same spirit as dev/data.sql's comment about signing up through the
 // app instead of hand-inserting rows) rather than inserting rows directly.
 //
+// It also seeds the Feed (0016-activity-feed.sql). The feed is filled by
+// database triggers, so this script does NOT insert activity rows - it performs
+// real actions as different users (edit an item, claim then archive it, leave
+// and rejoin a group, draw Secret Santa, ...) and lets the triggers log them.
+// Afterwards it back-dates those rows (service role) so the feed reads like
+// two weeks of history instead of one burst, and sets each user's
+// feed_seen_at so some have unread badges. Log in as any seeded user to see
+// the others' activity - a user never sees their own events.
+//
 // Requires the stack to already be up (./run.sh dev up / .\run.ps1 dev up)
 // and a fresh database, since it creates fixed test-user emails that will
 // collide with a previous run - reset first if you need to re-seed:
@@ -221,6 +230,184 @@ function descriptionFor(name) {
   return `Saw this and thought of it for the list - ${name.toLowerCase()}.`;
 }
 
+// ---------------------------------------------------------------------------
+// Feed seeding
+// ---------------------------------------------------------------------------
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+// Same shape as moment's 'LL', which is how the app stores the Secret Santa date.
+function formatLongDate(date) {
+  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+// public.activity is only readable/writable by the service role (clients go
+// through get_feed()), so these helpers use the service role key.
+async function allActivity() {
+  return rest('GET', 'activity?select=id,type&order=created_at.asc,id.asc', { jwt: SERVICE_ROLE_KEY });
+}
+
+async function setActivityTime(id, whenMs) {
+  await rest('PATCH', `activity?id=eq.${id}`, { jwt: SERVICE_ROLE_KEY, body: { created_at: new Date(whenMs).toISOString() } });
+}
+
+// Runs one scenario step as real user actions, then moves every activity row
+// the step caused to `agoMs` ago. Steps must run oldest -> newest: the
+// triggers' "just created" (10 min) and merge (30 min) windows use the real
+// clock, so each step has to be moved into the past before the next one runs.
+async function feedStep(label, agoMs, fn) {
+  console.log(`  ${label}`);
+  const before = new Set((await allActivity()).map((r) => r.id));
+  await fn();
+  const fresh = (await allActivity()).filter((r) => !before.has(r.id));
+  const start = Date.now() - agoMs;
+  for (let i = 0; i < fresh.length; i++) await setActivityTime(fresh[i].id, start + i * 45 * 1000);
+}
+
+// Everything the base seed did happened within a few seconds. Drop the
+// setup-only noise (bios, avatars and group photos set while creating the
+// accounts) and spread the rest - joins, list shares, item adds - over days
+// 14..7 ago, keeping their original order.
+async function spreadSetupActivity() {
+  await rest('DELETE', 'activity?type=in.(profile_updated,group_updated)', { jwt: SERVICE_ROLE_KEY });
+  const rows = await allActivity();
+  const start = Date.now() - 14 * DAY;
+  const span = 7 * DAY;
+  for (let i = 0; i < rows.length; i++) {
+    await setActivityTime(rows[i].id, start + Math.round((i / Math.max(rows.length - 1, 1)) * span));
+  }
+  console.log(`  spread ${rows.length} setup events over days 14..7 ago`);
+}
+
+async function seedFeedActivity({ users, groups, lists, items }) {
+  const [alice, ben, carla, diego, erin] = users;
+  const [family, office] = groups;
+  const sharedItems = (u) => items.filter((i) => i.user.id === u.id && i.shared);
+  const listNamed = (u, name) => lists.find((l) => l.user.id === u.id && l.name === name);
+
+  async function addItem(user, name, list) {
+    const [row] = await rest('POST', 'items', {
+      jwt: user.jwt,
+      body: { name, description: descriptionFor(name), user_id: user.id },
+      prefer: 'return=representation',
+    });
+    if (list) await rest('POST', 'items_lists', { jwt: user.jwt, body: { item_id: row.id, list_id: list.id, user_id: user.id } });
+    const item = { id: row.id, user, shared: true };
+    items.push(item);
+    return item;
+  }
+  const editItem = (item, body) => rest('PATCH', `items?id=eq.${item.id}`, { jwt: item.user.jwt, body });
+
+  let legoItem; // created in the child-list step, edited near the end
+
+  console.log('Seeding feed activity...');
+  await spreadSetupActivity();
+
+  await feedStep('Diego edits one of his items', 6 * DAY, async () => {
+    await editItem(sharedItems(diego)[0], { description: 'Update: I would love this in black if possible.' });
+  });
+
+  await feedStep('Erin adds a new item with a photo', 5 * DAY, async () => {
+    const item = await addItem(erin, 'Trail Running Vest');
+    await seedItemImage({ item, position: 0 });
+  });
+
+  await feedStep("Carla adds an item to Jack's List (a child list)", 4 * DAY, async () => {
+    legoItem = await addItem(carla, 'Lego Space Set', listNamed(carla, "Jack's List"));
+    await seedItemImage({ item: legoItem, position: 0 });
+  });
+
+  await feedStep('Ben adds a photo to an existing item', 3.5 * DAY, async () => {
+    await seedItemImage({ item: sharedItems(ben)[0], position: 9 });
+  });
+
+  // Alice claims one of Ben's items (claims never appear in the feed), then Ben
+  // edits it: Alice sees it as "You claimed this", Ben's feed never does.
+  await feedStep("Alice claims one of Ben's items, then Ben edits it", 2.5 * DAY, async () => {
+    const item = sharedItems(ben)[1];
+    await rest('POST', 'items_status', { jwt: alice.jwt, body: { item_id: item.id, user_id: alice.id, status: 'P' } });
+    await editItem(item, { description: 'Update: the green one, not the blue one.' });
+  });
+
+  // Carla claims one of Diego's items, then Diego archives it: only Carla sees
+  // "Diego removed ..., which you claimed".
+  await feedStep("Carla claims one of Diego's items, then Diego archives it", 2 * DAY, async () => {
+    const item = sharedItems(diego)[1];
+    await rest('POST', 'items_status', { jwt: carla.jwt, body: { item_id: item.id, user_id: carla.id, status: 'P' } });
+    await editItem(item, { archived: true });
+  });
+
+  await feedStep(`Erin leaves ${office.name}`, 1.75 * DAY, async () => {
+    await rest('DELETE', `group_members?group_id=eq.${office.id}&user_id=eq.${erin.id}`, { jwt: erin.jwt });
+  });
+
+  await feedStep(`Ben adds Erin back to ${office.name}`, 1.25 * DAY, async () => {
+    await rest('POST', 'group_members', { jwt: ben.jwt, body: { group_id: office.id, user_id: erin.id, invite: false } });
+  });
+
+  await feedStep(`Ben makes Carla a co-owner of ${office.name}`, 1 * DAY, async () => {
+    await rest('PATCH', `group_members?group_id=eq.${office.id}&user_id=eq.${carla.id}`, { jwt: ben.jwt, body: { owner: true } });
+  });
+
+  // The rename and the new photo happen back to back, so the trigger merges
+  // them into one "renamed ... / also changed the group photo" row.
+  await feedStep(`Ben renames ${office.name} and changes its photo`, 20 * HOUR, async () => {
+    const newName = `${office.name} 2026`;
+    await rest('PATCH', `groups?id=eq.${office.id}`, { jwt: ben.jwt, body: { name: newName } });
+    office.name = newName;
+    await seedImage({
+      bucket: 'groups', objectName: office.id, jwt: ben.jwt, seed: `group-${office.id}-v2`, width: 1200, height: 400,
+      patchQuery: `groups?id=eq.${office.id}`, tokenField: 'image_token',
+    });
+  });
+
+  // Everyone is in the Family group. The draw is a simple shuffled cycle; only
+  // the name and date are copied into the feed, never who drew whom.
+  await feedStep(`Alice draws Secret Santa in ${family.name}`, 8 * HOUR, async () => {
+    const order = shuffle(users.map((u) => u.id));
+    const drawing = {};
+    order.forEach((id, i) => {
+      drawing[id] = [order[(i + 1) % order.length]];
+    });
+    await rest('PATCH', `groups?id=eq.${family.id}`, {
+      jwt: alice.jwt,
+      body: { secret_santa: { status: 'on', name: 'Family Secret Santa', date: formatLongDate(new Date(Date.now() + 10 * DAY)), drawing } },
+    });
+  });
+
+  await feedStep('Diego updates his bio and Carla changes her photo', 3 * HOUR, async () => {
+    await rest('PATCH', `profiles?user_id=eq.${diego.id}`, { jwt: diego.jwt, body: { bio: 'Runs on caffeine and spreadsheets. Now with a standing desk.' } });
+    await seedImage({
+      bucket: 'avatars', objectName: carla.id, jwt: carla.jwt, seed: `avatar-${carla.id}-v2`, width: 400, height: 400,
+      patchQuery: `profiles?user_id=eq.${carla.id}`, tokenField: 'avatar_token',
+    });
+  });
+
+  await feedStep('Ben adds a new item to his Holiday Wishlist', 40 * MINUTE, async () => {
+    const item = await addItem(ben, 'Ticket to Ride: Europe', listNamed(ben, 'Holiday Wishlist'));
+    await seedItemImage({ item, position: 0 });
+  });
+
+  await feedStep("Carla edits the Lego set on Jack's List", 10 * MINUTE, async () => {
+    await editItem(legoItem, { name: 'Lego Space Set (ages 6+)' });
+  });
+
+  // Rows in group_members default to "now" and group events only show to
+  // members who joined before them, so push every membership into the past
+  // (this also covers the re-added member above).
+  for (const g of groups) {
+    await rest('PATCH', `group_members?group_id=eq.${g.id}`, { jwt: SERVICE_ROLE_KEY, body: { created_at: new Date(Date.now() - 30 * DAY).toISOString() } });
+  }
+
+  // Everyone has "seen" the feed up to some point, so the older events are read
+  // and the newer ones show as unread badges / dots.
+  const seenAgo = [6 * HOUR, 2 * DAY, 2 * DAY, 5 * DAY, 1 * DAY];
+  for (let i = 0; i < users.length; i++) {
+    await rest('PATCH', `profiles?user_id=eq.${users[i].id}`, { jwt: SERVICE_ROLE_KEY, body: { feed_seen_at: new Date(Date.now() - seenAgo[i]).toISOString() } });
+  }
+}
+
 async function main() {
   console.log(`Seeding test data via ${API_URL} ...`);
   await waitForStack();
@@ -291,10 +478,13 @@ async function main() {
         body: { name, description: descriptionFor(name), user_id: u.id },
         prefer: 'return=representation',
       });
-      items.push({ id: row.id, user: u });
+      // "shared" = visible to other group members: users without lists share
+      // everything; otherwise only items on a published (non-default) list
+      // (the default list is not assigned to any group above).
+      const targetList = u.enable_lists ? userLists[i % userLists.length] : undefined;
+      items.push({ id: row.id, user: u, shared: !targetList || !targetList.isDefault });
 
-      if (u.enable_lists) {
-        const targetList = userLists[i % userLists.length];
+      if (targetList) {
         await rest('POST', 'items_lists', { jwt: u.jwt, body: { item_id: row.id, list_id: targetList.id, user_id: u.id } });
       }
     }
@@ -336,6 +526,8 @@ async function main() {
       await seedItemImage({ item: it, position });
     }
   }
+
+  await seedFeedActivity({ users, groups, lists, items });
 
   console.log('\nDone. Seeded users (password for all: ' + PASSWORD + '):');
   for (const u of users) console.log(`  ${u.email}${u.enable_lists ? ' (lists enabled)' : ''}`);
