@@ -53,6 +53,7 @@ REVOKE ALL ON public.activity FROM anon, authenticated;
 -- ---------------------------------------------------------------------------
 -- Per-user feed settings (on profiles, like every other setting)
 -- ---------------------------------------------------------------------------
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS enable_feed  boolean     NOT NULL DEFAULT true;  -- feature switch: off = no Feed page/nav, empty feed
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS feed_hidden  text[]      NOT NULL DEFAULT '{}';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS feed_seen_at timestamptz NOT NULL DEFAULT now();
 
@@ -455,6 +456,8 @@ FROM (
     AND (a.audience_user_id IS NULL OR a.audience_user_id = auth.uid())
 ) f
 WHERE f.visible
+  -- a user who turned the Feed off (profiles.enable_feed) gets an empty feed and a 0 unread count
+  AND COALESCE((SELECT p.enable_feed FROM profiles p WHERE p.user_id = auth.uid()), true)
   AND f.category <> ALL (
     COALESCE((SELECT p.feed_hidden FROM profiles p WHERE p.user_id = auth.uid()), '{}'::text[])
   );
