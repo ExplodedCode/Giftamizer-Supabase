@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 //
 // Populates a running local dev stack with sample data: 5 users, 2 groups,
-// and 30 items, exercising the real auth.users -> profiles -> lists signup
-// flow (same spirit as dev/data.sql's comment about signing up through the
-// app instead of hand-inserting rows) rather than inserting rows directly.
+// and their wishlists, exercising the real auth.users -> profiles -> lists
+// signup flow (same spirit as dev/data.sql's comment about signing up through
+// the app instead of hand-inserting rows) rather than inserting rows directly.
+//
+// The data itself (people, real products, descriptions) is in dev/seed-data.js
+// and the photos are in dev/seed-images - this file only has the logic, and
+// needs no network access beyond the local stack.
 //
 // It also seeds the Feed (0016-activity-feed.sql). The feed is filled by
 // database triggers, so this script does NOT insert activity rows - it performs
@@ -30,6 +34,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+const { USERS, GROUPS, FEED } = require('./seed-data.js');
+
+const IMAGES_DIR = path.join(__dirname, 'seed-images');
 const ROOT = path.resolve(__dirname, '..');
 
 function loadEnvFile(file) {
@@ -64,39 +71,6 @@ if (!ANON_KEY || !SERVICE_ROLE_KEY || !JWT_SECRET) {
 }
 
 const PASSWORD = 'Password123!';
-
-const USERS = [
-  {
-    first_name: 'Alice', last_name: 'Anderson', email: 'alice@giftamizer.test', bio: 'Coffee enthusiast, always cold, easy to shop for.', enable_lists: true,
-    extraLists: [{ name: 'Birthday Wishlist', child_list: false }],
-  },
-  {
-    first_name: 'Ben', last_name: 'Baker', email: 'ben@giftamizer.test', bio: 'Board game collector and mediocre chef.', enable_lists: true,
-    extraLists: [
-      { name: 'Holiday Wishlist', child_list: false },
-      { name: 'Just Because', child_list: false },
-    ],
-  },
-  {
-    first_name: 'Carla', last_name: 'Chen', email: 'carla@giftamizer.test', bio: 'Professional plant parent.', enable_lists: true,
-    // Child lists: Carla manages wishlists on behalf of her kids from her own account.
-    extraLists: [
-      { name: "Jack's List", child_list: true },
-      { name: "Lily's List", child_list: true },
-    ],
-  },
-  { first_name: 'Diego', last_name: 'Diaz', email: 'diego@giftamizer.test', bio: 'Runs on caffeine and spreadsheets.', enable_lists: false, extraLists: [] },
-  { first_name: 'Erin', last_name: 'Evans', email: 'erin@giftamizer.test', bio: 'Books, hikes, and too many houseplants.', enable_lists: false, extraLists: [] },
-];
-
-const ITEM_NAMES = [
-  'Wireless Headphones', 'Yeti Tumbler', 'Catan Board Game', 'Espresso Machine', 'Hiking Boots',
-  'Kindle Paperwhite', 'Instant Pot', 'Leather Wallet', 'Bluetooth Speaker', 'Cast Iron Skillet',
-  '1000-Piece Puzzle', 'Scented Candle Set', 'Running Shoes', 'Graphic Novel Box Set', 'Smartwatch',
-  'Manual Coffee Grinder', 'Yoga Mat', 'Desk Succulent', 'Air Fryer', 'Noise Cancelling Earbuds',
-  'Vinyl Record Player', 'Baking Basics Cookbook', 'Weighted Blanket', 'Portable Charger', 'Mechanical Keyboard',
-  'Insulated Water Bottle', 'Photo Album', 'Ticket to Ride Board Game', 'Wireless Mouse', 'Chunky Throw Blanket',
-];
 
 function base64url(input) {
   return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -178,39 +152,61 @@ async function withRetry(fn, attempts = 3, delayMs = 1500) {
   throw lastErr;
 }
 
-async function uploadImage(bucket, objectName, jwt, seed, { width = 600, height = 600 } = {}) {
-  const imgRes = await fetch(`https://picsum.photos/seed/${encodeURIComponent(seed)}/${width}/${height}`);
-  if (!imgRes.ok) throw new Error(`picsum fetch failed for seed "${seed}": ${imgRes.status}`);
-  const buffer = Buffer.from(await imgRes.arrayBuffer());
-  const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
-
+async function uploadImage(bucket, objectName, jwt, file) {
+  const buffer = fs.readFileSync(path.join(IMAGES_DIR, file));
   const res = await fetch(`${API_URL}/storage/v1/object/${bucket}/${objectName}`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': contentType, 'x-upsert': 'true' },
+    headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'image/jpeg', 'x-upsert': 'true' },
     body: buffer,
   });
   if (!res.ok) {
-    throw new Error(`Uploading to ${bucket}/${objectName} failed (${res.status}): ${await res.text()}`);
+    throw new Error(`Uploading ${file} to ${bucket}/${objectName} failed (${res.status}): ${await res.text()}`);
   }
 }
 
-// Fetches + uploads a picsum image for one entity, then bumps its *_token
-// column so the frontend's cache-busted image URL picks up the new file.
-async function seedImage({ bucket, objectName, jwt, seed, width, height, patchQuery, tokenField }) {
+// Uploads an image for one entity, then bumps its *_token column so the
+// frontend's cache-busted image URL picks up the new file.
+async function seedImage({ bucket, objectName, jwt, file, patchQuery, tokenField }) {
   await withRetry(async () => {
-    await uploadImage(bucket, objectName, jwt, seed, { width, height });
+    await uploadImage(bucket, objectName, jwt, file);
     await rest('PATCH', patchQuery, { jwt, body: { [tokenField]: Date.now() } });
   });
 }
 
 // Items don't use a *_token column - each image is its own item_images row,
 // stored at items/{itemId}/{imageId} (see 0014-item-multi-images.sql).
-async function seedItemImage({ item, position }) {
+async function seedItemImage({ item, position, file }) {
   const imageId = crypto.randomUUID();
   await withRetry(async () => {
-    await uploadImage('items', `${item.id}/${imageId}`, item.user.jwt, `item-${item.id}-${imageId}`, { width: 600, height: 600 });
+    await uploadImage('items', `${item.id}/${imageId}`, item.user.jwt, file);
     await rest('POST', 'item_images', { jwt: item.user.jwt, body: { id: imageId, item_id: item.id, user_id: item.user.id, position } });
   });
+}
+
+async function seedItemImages(item, files = []) {
+  for (let position = 0; position < files.length; position++) {
+    await seedItemImage({ item, position, file: files[position] });
+  }
+}
+
+// { Size: 'M' } -> [{ id: 0, name: 'Size', value: 'M' }], the shape the app stores.
+function customFields(fields = {}) {
+  return Object.entries(fields).map(([name, value], id) => ({ id, name, value }));
+}
+
+// Creates one item (an entry of USERS[].items) and puts it on its list, if any.
+async function createItem(user, def, lists) {
+  const [row] = await rest('POST', 'items', {
+    jwt: user.jwt,
+    body: { name: def.name, description: def.description, links: def.links ?? [], custom_fields: customFields(def.fields), user_id: user.id },
+    prefer: 'return=representation',
+  });
+  if (def.list) {
+    const list = lists.find((l) => l.user.id === user.id && l.name === def.list);
+    if (!list) throw new Error(`Item "${def.key}" is on list "${def.list}", which ${user.email} doesn't have`);
+    await rest('POST', 'items_lists', { jwt: user.jwt, body: { item_id: row.id, list_id: list.id, user_id: user.id } });
+  }
+  return { id: row.id, key: def.key, user, images: def.images };
 }
 
 function shuffle(arr) {
@@ -220,14 +216,6 @@ function shuffle(arr) {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
-}
-
-function pickSubset(arr, pct) {
-  return shuffle(arr).slice(0, Math.round(arr.length * pct));
-}
-
-function descriptionFor(name) {
-  return `Saw this and thought of it for the list - ${name.toLowerCase()}.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -281,117 +269,106 @@ async function spreadSetupActivity() {
 }
 
 async function seedFeedActivity({ users, groups, lists, items }) {
-  const [alice, ben, carla, diego, erin] = users;
-  const [family, office] = groups;
-  const sharedItems = (u) => items.filter((i) => i.user.id === u.id && i.shared);
-  const listNamed = (u, name) => lists.find((l) => l.user.id === u.id && l.name === name);
+  const byKey = (arr, key) => {
+    const found = arr.find((x) => x.key === key);
+    if (!found) throw new Error(`Nothing in dev/seed-data.js has the key "${key}"`);
+    return found;
+  };
+  const [alice, ben, carla, diego, erin] = ['alice', 'ben', 'carla', 'diego', 'erin'].map((k) => byKey(users, k));
+  const [holiday, games] = ['holiday', 'games'].map((k) => byKey(groups, k));
+  const itemFor = (key) => byKey(items, key);
 
-  async function addItem(user, name, list) {
-    const [row] = await rest('POST', 'items', {
-      jwt: user.jwt,
-      body: { name, description: descriptionFor(name), user_id: user.id },
-      prefer: 'return=representation',
-    });
-    if (list) await rest('POST', 'items_lists', { jwt: user.jwt, body: { item_id: row.id, list_id: list.id, user_id: user.id } });
-    const item = { id: row.id, user, shared: true };
+  async function addItem(user, def) {
+    const item = await createItem(user, def, lists);
     items.push(item);
+    await seedItemImages(item, def.images);
     return item;
   }
-  const editItem = (item, body) => rest('PATCH', `items?id=eq.${item.id}`, { jwt: item.user.jwt, body });
-
-  let legoItem; // created in the child-list step, edited near the end
+  const patchItem = (item, body) => rest('PATCH', `items?id=eq.${item.id}`, { jwt: item.user.jwt, body });
+  const editItem = (key) => {
+    const { fields, ...body } = FEED.edits[key];
+    return patchItem(itemFor(key), fields ? { ...body, custom_fields: customFields(fields) } : body);
+  };
 
   console.log('Seeding feed activity...');
   await spreadSetupActivity();
 
-  await feedStep('Diego edits one of his items', 6 * DAY, async () => {
-    await editItem(sharedItems(diego)[0], { description: 'Update: I would love this in black if possible.' });
-  });
+  await feedStep('Diego edits one of his items', 6 * DAY, () => editItem('keyboard'));
 
-  await feedStep('Erin adds a new item with a photo', 5 * DAY, async () => {
-    const item = await addItem(erin, 'Trail Running Vest');
-    await seedItemImage({ item, position: 0 });
-  });
+  await feedStep('Erin adds a new item with photos', 5 * DAY, () => addItem(erin, FEED.newItems.runningVest));
 
-  await feedStep("Carla adds an item to Jack's List (a child list)", 4 * DAY, async () => {
-    legoItem = await addItem(carla, 'Lego Space Set', listNamed(carla, "Jack's List"));
-    await seedItemImage({ item: legoItem, position: 0 });
-  });
+  await feedStep("Carla adds an item to Jack's list (a child list)", 4 * DAY, () => addItem(carla, FEED.newItems.legoSpaceship));
 
   await feedStep('Ben adds a photo to an existing item', 3.5 * DAY, async () => {
-    await seedItemImage({ item: sharedItems(ben)[0], position: 9 });
+    const item = itemFor('pizza-oven');
+    await seedItemImage({ item, position: item.images.length, file: FEED.pizzaOvenExtraImage });
   });
 
   // Alice claims one of Ben's items (claims never appear in the feed), then Ben
   // edits it: Alice sees it as "You claimed this", Ben's feed never does.
   await feedStep("Alice claims one of Ben's items, then Ben edits it", 2.5 * DAY, async () => {
-    const item = sharedItems(ben)[1];
-    await rest('POST', 'items_status', { jwt: alice.jwt, body: { item_id: item.id, user_id: alice.id, status: 'P' } });
-    await editItem(item, { description: 'Update: the green one, not the blue one.' });
+    await rest('POST', 'items_status', { jwt: alice.jwt, body: { item_id: itemFor('dutch-oven').id, user_id: alice.id, status: 'P' } });
+    await editItem('dutch-oven');
   });
 
   // Carla claims one of Diego's items, then Diego archives it: only Carla sees
   // "Diego removed ..., which you claimed".
   await feedStep("Carla claims one of Diego's items, then Diego archives it", 2 * DAY, async () => {
-    const item = sharedItems(diego)[1];
+    const item = itemFor('desk-mat');
     await rest('POST', 'items_status', { jwt: carla.jwt, body: { item_id: item.id, user_id: carla.id, status: 'P' } });
-    await editItem(item, { archived: true });
+    await patchItem(item, { archived: true });
   });
 
-  await feedStep(`Erin leaves ${office.name}`, 1.75 * DAY, async () => {
-    await rest('DELETE', `group_members?group_id=eq.${office.id}&user_id=eq.${erin.id}`, { jwt: erin.jwt });
+  await feedStep(`Erin leaves ${games.name}`, 1.75 * DAY, async () => {
+    await rest('DELETE', `group_members?group_id=eq.${games.id}&user_id=eq.${erin.id}`, { jwt: erin.jwt });
   });
 
-  await feedStep(`Ben adds Erin back to ${office.name}`, 1.25 * DAY, async () => {
-    await rest('POST', 'group_members', { jwt: ben.jwt, body: { group_id: office.id, user_id: erin.id, invite: false } });
+  await feedStep(`Ben adds Erin back to ${games.name}`, 1.25 * DAY, async () => {
+    await rest('POST', 'group_members', { jwt: ben.jwt, body: { group_id: games.id, user_id: erin.id, invite: false } });
   });
 
-  await feedStep(`Ben makes Carla a co-owner of ${office.name}`, 1 * DAY, async () => {
-    await rest('PATCH', `group_members?group_id=eq.${office.id}&user_id=eq.${carla.id}`, { jwt: ben.jwt, body: { owner: true } });
+  await feedStep(`Ben makes Carla a co-owner of ${games.name}`, 1 * DAY, async () => {
+    await rest('PATCH', `group_members?group_id=eq.${games.id}&user_id=eq.${carla.id}`, { jwt: ben.jwt, body: { owner: true } });
   });
 
   // The rename and the new photo happen back to back, so the trigger merges
   // them into one "renamed ... / also changed the group photo" row.
-  await feedStep(`Ben renames ${office.name} and changes its photo`, 20 * HOUR, async () => {
-    const newName = `${office.name} 2026`;
-    await rest('PATCH', `groups?id=eq.${office.id}`, { jwt: ben.jwt, body: { name: newName } });
-    office.name = newName;
+  await feedStep(`Ben renames ${games.name} and changes its photo`, 20 * HOUR, async () => {
+    const { name, image } = FEED.gameNightRename;
+    await rest('PATCH', `groups?id=eq.${games.id}`, { jwt: ben.jwt, body: { name } });
+    games.name = name;
     await seedImage({
-      bucket: 'groups', objectName: office.id, jwt: ben.jwt, seed: `group-${office.id}-v2`, width: 1200, height: 400,
-      patchQuery: `groups?id=eq.${office.id}`, tokenField: 'image_token',
+      bucket: 'groups', objectName: games.id, jwt: ben.jwt, file: image,
+      patchQuery: `groups?id=eq.${games.id}`, tokenField: 'image_token',
     });
   });
 
-  // Everyone is in the Family group. The draw is a simple shuffled cycle; only
+  // Everyone is in the holiday group. The draw is a simple shuffled cycle; only
   // the name and date are copied into the feed, never who drew whom.
-  await feedStep(`Alice draws Secret Santa in ${family.name}`, 8 * HOUR, async () => {
+  await feedStep(`Alice draws Secret Santa in ${holiday.name}`, 8 * HOUR, async () => {
     const order = shuffle(users.map((u) => u.id));
     const drawing = {};
     order.forEach((id, i) => {
       drawing[id] = [order[(i + 1) % order.length]];
     });
-    await rest('PATCH', `groups?id=eq.${family.id}`, {
+    await rest('PATCH', `groups?id=eq.${holiday.id}`, {
       jwt: alice.jwt,
-      body: { secret_santa: { status: 'on', name: 'Family Secret Santa', date: formatLongDate(new Date(Date.now() + 10 * DAY)), drawing } },
+      body: { secret_santa: { status: 'on', name: FEED.secretSantaName, date: formatLongDate(new Date(Date.now() + 10 * DAY)), drawing } },
     });
   });
 
-  await feedStep('Diego updates his bio and Carla changes her photo', 3 * HOUR, async () => {
-    await rest('PATCH', `profiles?user_id=eq.${diego.id}`, { jwt: diego.jwt, body: { bio: 'Runs on caffeine and spreadsheets. Now with a standing desk.' } });
+  await feedStep('Carla updates her bio, and Diego updates his bio and photo', 3 * HOUR, async () => {
+    await rest('PATCH', `profiles?user_id=eq.${carla.id}`, { jwt: carla.jwt, body: { bio: FEED.carlaBio } });
+    await rest('PATCH', `profiles?user_id=eq.${diego.id}`, { jwt: diego.jwt, body: { bio: FEED.diegoBio } });
     await seedImage({
-      bucket: 'avatars', objectName: carla.id, jwt: carla.jwt, seed: `avatar-${carla.id}-v2`, width: 400, height: 400,
-      patchQuery: `profiles?user_id=eq.${carla.id}`, tokenField: 'avatar_token',
+      bucket: 'avatars', objectName: diego.id, jwt: diego.jwt, file: FEED.diegoAvatar,
+      patchQuery: `profiles?user_id=eq.${diego.id}`, tokenField: 'avatar_token',
     });
   });
 
-  await feedStep('Ben adds a new item to his Holiday Wishlist', 40 * MINUTE, async () => {
-    const item = await addItem(ben, 'Ticket to Ride: Europe', listNamed(ben, 'Holiday Wishlist'));
-    await seedItemImage({ item, position: 0 });
-  });
+  await feedStep('Ben adds a new item to his Holiday Wishlist', 40 * MINUTE, () => addItem(ben, FEED.newItems.ticketToRide));
 
-  await feedStep("Carla edits the Lego set on Jack's List", 10 * MINUTE, async () => {
-    await editItem(legoItem, { name: 'Lego Space Set (ages 6+)' });
-  });
+  await feedStep("Carla edits the LEGO set on Jack's list", 10 * MINUTE, () => editItem('lego-spaceship'));
 
   // Rows in group_members default to "now" and group events only show to
   // members who joined before them, so push every membership into the past
@@ -427,15 +404,12 @@ async function main() {
   }
 
   console.log('Creating groups...');
-  const groupDefs = [
-    { name: 'Family Gift Exchange', owner: users[0] },
-    { name: 'Office Secret Santa', owner: users[1] },
-  ];
   const groups = [];
-  for (const g of groupDefs) {
-    const [row] = await rest('POST', 'groups', { jwt: g.owner.jwt, body: { name: g.name }, prefer: 'return=representation' });
-    groups.push({ id: row.id, name: g.name, owner: g.owner });
-    console.log(`  ${g.name} (${row.id}), owner ${g.owner.email}`);
+  for (const g of GROUPS) {
+    const owner = users.find((u) => u.key === g.owner);
+    const [row] = await rest('POST', 'groups', { jwt: owner.jwt, body: { name: g.name }, prefer: 'return=representation' });
+    groups.push({ ...g, id: row.id, owner });
+    console.log(`  ${g.name} (${row.id}), owner ${owner.email}`);
   }
 
   console.log('Adding group members...');
@@ -452,9 +426,9 @@ async function main() {
   const lists = [];
   for (const u of users) {
     lists.push({ id: 'default', user: u, name: 'Default', isDefault: true });
-    for (const { name, child_list } of u.extraLists) {
-      const [row] = await rest('POST', 'lists', { jwt: u.jwt, body: { name, user_id: u.id, child_list }, prefer: 'return=representation' });
-      lists.push({ id: row.id, user: u, name, isDefault: false });
+    for (const { name, child_list, bio, image } of u.lists) {
+      const [row] = await rest('POST', 'lists', { jwt: u.jwt, body: { name, bio, user_id: u.id, child_list }, prefer: 'return=representation' });
+      lists.push({ id: row.id, user: u, name, image, isDefault: false });
       console.log(`  ${u.email}: "${name}"${child_list ? ' (child list)' : ''} (${row.id})`);
     }
   }
@@ -468,64 +442,43 @@ async function main() {
 
   console.log('Creating items...');
   const items = [];
-  let nameIdx = 0;
-  for (const u of users) {
-    const userLists = lists.filter((l) => l.user.id === u.id);
-    for (let i = 0; i < 6; i++) {
-      const name = ITEM_NAMES[nameIdx++ % ITEM_NAMES.length];
-      const [row] = await rest('POST', 'items', {
-        jwt: u.jwt,
-        body: { name, description: descriptionFor(name), user_id: u.id },
-        prefer: 'return=representation',
-      });
-      // "shared" = visible to other group members: users without lists share
-      // everything; otherwise only items on a published (non-default) list
-      // (the default list is not assigned to any group above).
-      const targetList = u.enable_lists ? userLists[i % userLists.length] : undefined;
-      items.push({ id: row.id, user: u, shared: !targetList || !targetList.isDefault });
-
-      if (targetList) {
-        await rest('POST', 'items_lists', { jwt: u.jwt, body: { item_id: row.id, list_id: targetList.id, user_id: u.id } });
-      }
-    }
-  }
+  // Interleave the users rather than adding one user's items at a time, so the
+  // feed's "added" events (spread out in this order) read like everyone chipping in.
+  const queue = users.flatMap((user) => user.items.map((def, i) => ({ user, def, order: (i + 0.5) / user.items.length })));
+  queue.sort((a, b) => a.order - b.order);
+  for (const { user, def } of queue) items.push(await createItem(user, def, lists));
   console.log(`  ${items.length} items created`);
 
-  console.log('Uploading avatar images (~70% of users)...');
-  for (const u of pickSubset(users, 0.7)) {
+  console.log('Uploading avatar images...');
+  for (const u of users) {
     await seedImage({
-      bucket: 'avatars', objectName: u.id, jwt: u.jwt, seed: `avatar-${u.id}`, width: 400, height: 400,
+      bucket: 'avatars', objectName: u.id, jwt: u.jwt, file: u.avatar,
       patchQuery: `profiles?user_id=eq.${u.id}`, tokenField: 'avatar_token',
     });
   }
 
-  console.log('Uploading group images (~70% of groups)...');
-  for (const g of pickSubset(groups, 0.7)) {
+  console.log('Uploading group images...');
+  for (const g of groups) {
     await seedImage({
-      bucket: 'groups', objectName: g.id, jwt: g.owner.jwt, seed: `group-${g.id}`, width: 1200, height: 400,
+      bucket: 'groups', objectName: g.id, jwt: g.owner.jwt, file: g.image,
       patchQuery: `groups?id=eq.${g.id}`, tokenField: 'image_token',
     });
   }
 
-  console.log('Uploading list images (~70% of non-default lists)...');
+  console.log('Uploading list images...');
   // The lists storage bucket's RLS policy (is_list_owner in 0005-items.sql)
   // keys objects by the bare list id, and every user's auto-created list
   // uses the literal id 'default' - so a 'default' object would collide
   // across every user. Only the extra, uniquely-id'd lists get images.
-  for (const l of pickSubset(lists.filter((l) => !l.isDefault), 0.7)) {
+  for (const l of lists.filter((l) => l.image)) {
     await seedImage({
-      bucket: 'lists', objectName: l.id, jwt: l.user.jwt, seed: `list-${l.user.id}-${l.id}`, width: 400, height: 400,
+      bucket: 'lists', objectName: l.id, jwt: l.user.jwt, file: l.image,
       patchQuery: `lists?id=eq.${l.id}&user_id=eq.${l.user.id}`, tokenField: 'avatar_token',
     });
   }
 
-  console.log('Uploading item images (~70% of items, some with multiple)...');
-  for (const it of pickSubset(items, 0.7)) {
-    const imageCount = Math.random() < 0.25 ? 2 + Math.floor(Math.random() * 2) : 1; // ~25% of those get 2-3 images
-    for (let position = 0; position < imageCount; position++) {
-      await seedItemImage({ item: it, position });
-    }
-  }
+  console.log('Uploading item images...');
+  for (const it of items) await seedItemImages(it, it.images);
 
   await seedFeedActivity({ users, groups, lists, items });
 

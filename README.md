@@ -72,7 +72,7 @@ default list automatically.
 ### Seeding test data
 
 Once the dev stack is up, `dev/seed-test-data.js` populates it with 5 users,
-2 groups, and 30 items (all through the real Auth/REST/Storage APIs, so RLS
+2 groups, and 47 items (all through the real Auth/REST/Storage APIs, so RLS
 and triggers behave exactly as they would for a real signup) — useful for
 exercising the app without clicking through signup forms by hand:
 
@@ -80,17 +80,21 @@ exercising the app without clicking through signup forms by hand:
 node dev/seed-test-data.js
 ```
 
-3 of the 5 users have `enable_lists` on; of those, one gets a second list,
-another gets a third, and the third gets two child lists (`child_list: true`,
-e.g. wishlists managed on behalf of their kids) - all on top of everyone's
-auto-created default list. Every non-default list is published to both
-groups via `lists_groups` so it shows up as a separate list within a group.
-About 70% of items, groups, non-default lists, and user avatars get a real
-downloaded image from
-[picsum.photos](https://picsum.photos) uploaded to Storage. All seeded users
-share the password `Password123!`. Requires Node 18+ and a fresh database —
-re-running against already-seeded data will fail on duplicate emails; reset
-first (`./reset.sh` / `.\reset.ps1`) if you need to start over.
+The people, lists, and items are defined in `dev/seed-data.js` — real products
+with store links, descriptions, and custom fields like size and color — and
+their photos are checked in under `dev/seed-images` (see the README there for
+sources), so seeding needs no internet access.
+
+3 of the 5 users have `enable_lists` on: Alice has one extra list, Ben has two,
+and Carla has three, including child lists (`child_list: true`) for her kids
+Jack and Lily — all on top of everyone's auto-created default list. Every
+non-default list is published to both groups via `lists_groups`, so the child
+lists show up as their own people within a group. Every user, group, and child
+list has a photo; a few items and one list have none, to exercise the
+placeholders. All seeded users share the password `Password123!`. Requires
+Node 18+ and a fresh database — re-running against already-seeded data will
+fail on duplicate emails; reset first (`./reset.sh` / `.\reset.ps1`) if you
+need to start over.
 
 The script also seeds the Feed. The feed is filled by database triggers
 (`0016-activity-feed.sql`), so rather than inserting activity rows the script
@@ -98,7 +102,7 @@ performs real actions as different users — editing items, claiming then
 archiving one, leaving and rejoining a group, promoting a co-owner, renaming a
 group, drawing Secret Santa, changing a bio and avatar — and then back-dates
 the rows the triggers logged so the feed reads like two weeks of history (about
-60 events, enough for a second page). It also sets each user's `feed_seen_at`
+70 events, enough for a second page). It also sets each user's `feed_seen_at`
 so some users have unread badges. A user never sees their own events, so log in
 as a few different seeded users to see it. Claims are private: only Alice
 (who claimed Ben's item) sees it flagged "You claimed this", and only Carla
