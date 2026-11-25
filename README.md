@@ -249,6 +249,7 @@ in time instead of `latest`.
 - `volumes/api/kong.yml` — API gateway routing
 - `volumes/auth/templates/` — auth emails (sign-up, password reset, email change), served to the auth service by Kong (`volumes/api/email-templates.conf`)
 - `scripts/build-emails.mjs` — rebuilds the auth emails and the copies of the invite emails from the layout in `volumes/functions/invite/layout.js`
+- `email-previews/` — every email with sample data, open `index.html`; rebuilt by `scripts/build-email-previews.mjs` (needs the frontend checkout next to this one)
 - `volumes/api/kong-entrypoint.sh` — Kong's custom entrypoint (env substitution + opaque-key Lua expressions)
 - `volumes/functions/` — Edge Functions (Deno)
 - `volumes/logs/vector.yml` — Vector log-routing config, used by `docker-compose.logs.yml`
