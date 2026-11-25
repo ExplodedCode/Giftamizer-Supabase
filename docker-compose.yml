@@ -540,7 +540,8 @@ services:
   # Local restic backup of the db-backup pg_dumps above (./backups) and the
   # Storage files (./volumes/storage): encrypted, deduplicated snapshots
   # written to ./volumes/restic-repo. On every successful backup,
-  # POST_COMMANDS_SUCCESS runs `rclone sync` to mirror that local repo to
+  # POST_COMMANDS_SUCCESS runs scripts/restic-offsite-sync.sh (`rclone sync`
+  # with retries and an overwrite guard) to mirror that local repo to
   # whichever remote is configured in RCLONE_REMOTE / ./volumes/rclone -
   # rclone supports ~70 backends (S3, B2, R2, SFTP, Google Drive, ...), none
   # of which are hardcoded here; the remote itself is defined via
@@ -563,17 +564,38 @@ services:
       # Mounted read-write, not read-only: backends with oauth refresh
       # tokens (B2, OneDrive, Google Drive) rewrite this file in place.
       - ./volumes/rclone:/root/.config/rclone
+      - ./scripts/restic-offsite-sync.sh:/scripts/restic-offsite-sync.sh:ro
+    healthcheck:
+      # Unhealthy when no backup + offsite sync has succeeded recently. The
+      # container itself stays up when its jobs fail, so "Up 3 days" alone
+      # says nothing about the backups.
+      test:
+        [
+          "CMD-SHELL",
+          "find /run/offsite-sync.ok -mmin -${RESTIC_HEALTH_MAX_AGE_MINUTES:-1560} 2>/dev/null | grep -q ."
+        ]
+      interval: 5m
+      timeout: 10s
+      retries: 1
+      start_period: 1h
     environment:
       TZ: ${TZ:-Etc/UTC}
       RESTIC_REPOSITORY: /data/restic-repo
       RESTIC_PASSWORD: ${RESTIC_PASSWORD}
       RESTIC_BACKUP_SOURCES: /data/backups /data/storage
-      RESTIC_BACKUP_ARGS: --tag giftamizer
+      # Fixed host: the default is the container ID, and forget applies the
+      # retention policy per host, so every recreated container would leave its
+      # snapshots behind forever.
+      RESTIC_BACKUP_ARGS: --tag giftamizer --host giftamizer
       RESTIC_FORGET_ARGS: --keep-daily ${RESTIC_KEEP_DAYS:-7} --keep-weekly ${RESTIC_KEEP_WEEKS:-4} --keep-monthly ${RESTIC_KEEP_MONTHS:-6}
       RUN_ON_STARTUP: "true"
       BACKUP_CRON: ${RESTIC_BACKUP_CRON:-0 30 3 * * *}
       RCLONE_REMOTE: ${RCLONE_REMOTE}
-      POST_COMMANDS_SUCCESS: rclone sync /data/restic-repo "$$RCLONE_REMOTE"
+      POST_COMMANDS_SUCCESS: bash /scripts/restic-offsite-sync.sh
+      # The image only removes its lock on the last line of a fully successful
+      # run. Without this, one failed offsite sync makes every later backup
+      # skip with "Backup already running" until the container is restarted.
+      POST_COMMANDS_EXIT: rm -f /run/lock/backup.lock
 
   # Reclaims space that restic-backup's forget only marked as removable, then
   # mirrors the result offsite too (so deleted snapshots disappear remotely,
@@ -591,6 +613,7 @@ services:
     volumes:
       - ./volumes/restic-repo:/data/restic-repo
       - ./volumes/rclone:/root/.config/rclone
+      - ./scripts/restic-offsite-sync.sh:/scripts/restic-offsite-sync.sh:ro
     environment:
       TZ: ${TZ:-Etc/UTC}
       SKIP_INIT: "true"
@@ -599,7 +622,7 @@ services:
       RUN_ON_STARTUP: "true"
       PRUNE_CRON: ${RESTIC_PRUNE_CRON:-0 0 4 * * *}
       RCLONE_REMOTE: ${RCLONE_REMOTE}
-      POST_COMMANDS_SUCCESS: rclone sync /data/restic-repo "$$RCLONE_REMOTE"
+      POST_COMMANDS_SUCCESS: bash /scripts/restic-offsite-sync.sh
 
   # Update the DATABASE_URL if you are using an external Postgres database
   supavisor:

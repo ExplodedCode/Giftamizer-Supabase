@@ -3,7 +3,7 @@
 # and the uploaded storage files into ONE compressed archive.
 #
 # Usage:
-#   ./pull-offsite-backup.sh [snapshot-id|latest] [destination-dir]
+#   bash scripts/pull-offsite-backup.sh [snapshot-id|latest] [destination-dir]
 #
 # Defaults: snapshot "latest", destination ~ (the running user's home dir).
 #
@@ -24,7 +24,7 @@
 # repo + the extracted files + the archive) in the destination filesystem.
 #
 # Restoring from the archive (stop storage/imgproxy first when copying files
-# back) is described in README.md under "Offsite backup" / "Restoring".
+# back) is described in backup.md under "Restore".
 
 set -euo pipefail
 
