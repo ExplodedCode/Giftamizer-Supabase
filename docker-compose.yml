@@ -102,6 +102,8 @@ services:
       # https://github.com/supabase/supabase/issues/12661
       - ./volumes/api/kong.yml:/home/kong/temp.yml:ro,z
       - ./volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro,z
+      - ./volumes/api/email-templates.conf:/home/kong/email-templates.conf:ro,z
+      - ./volumes/auth/templates:/home/kong/email-templates:ro,z
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
@@ -112,6 +114,8 @@ services:
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
       KONG_PROXY_ACCESS_LOG: /dev/stdout combined
+      # Serves the auth email templates on port 8088 (compose network only)
+      KONG_NGINX_HTTP_INCLUDE: /home/kong/email-templates.conf
       SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
       SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:-}
@@ -182,6 +186,10 @@ services:
       GOTRUE_MAILER_URLPATHS_CONFIRMATION: ${MAILER_URLPATHS_CONFIRMATION}
       GOTRUE_MAILER_URLPATHS_RECOVERY: ${MAILER_URLPATHS_RECOVERY}
       GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: ${MAILER_URLPATHS_EMAIL_CHANGE}
+      # volumes/auth/templates, served by Kong. If one can't be loaded, auth sends its own plain email.
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: http://kong:8088/confirmation.html
+      GOTRUE_MAILER_TEMPLATES_RECOVERY: http://kong:8088/recovery.html
+      GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE: http://kong:8088/email_change.html
 
       GOTRUE_EXTERNAL_PHONE_ENABLED: ${ENABLE_PHONE_SIGNUP}
       GOTRUE_SMS_AUTOCONFIRM: ${ENABLE_PHONE_AUTOCONFIRM}

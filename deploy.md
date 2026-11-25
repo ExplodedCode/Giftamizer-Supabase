@@ -269,6 +269,18 @@ below your Brevo plan's daily quota: auth emails share that quota but not these
 limits. This needs `0018-invite-email-limits.sql`; without it no invite emails
 are sent.
 
+The emails share one layout, `volumes/functions/invite/layout.js`. Edit the
+invites in `volumes/functions/invite/emails.js` and the auth emails in
+`scripts/build-emails.mjs`, then run `node scripts/build-emails.mjs`. Their
+images are part of the frontend (`public/images/email`), so deploy the frontend
+first. The auth service keeps a loaded template for 10 minutes; restart `auth`
+to pick up a change sooner. The first time these templates are deployed, apply
+the new settings with:
+
+```bash
+docker compose up -d kong auth
+```
+
 If you don't configure real SMTP at all,
 `ENABLE_EMAIL_AUTOCONFIRM=true` (the `.env.example` default) means sign-up
 still works without a confirmation click. Password-reset and invite emails
