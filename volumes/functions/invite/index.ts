@@ -2,15 +2,36 @@ import { Application, Router } from 'https://deno.land/x/oak@v12.6.1/mod.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.33.1';
 
 import template from './template.ts';
-import { getToken, sendEmail } from './graph.ts';
+import { sendLimitedEmail } from './limit.ts';
+import { authorizeGroupOwner, fullName, getExternalInviteEmail, getMember, HttpError } from './authorize.ts';
 
 import { internal, external, secretSanta } from './emails.js';
-import { stringToBoolean } from './utils.ts';
 
-const DEV_MODE = stringToBoolean(Deno.env.get('DEV_MODE'));
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const supabase = createClient(SUPABASE_URL || '', SUPABASE_SERVICE_ROLE_KEY || '');
+
+const readBody = async (context: any) => {
+	try {
+		// Note: request body will be streamed to the function as chunks, set limit to 0 to fully read it.
+		return await context.request.body({ type: 'json', limit: 0 }).value;
+	} catch {
+		throw new HttpError(400, 'Invalid request body');
+	}
+};
+
+const handleError = (context: any, error: unknown) => {
+	if (error instanceof HttpError) {
+		context.response.status = error.status;
+		context.response.body = { message: error.message };
+		return;
+	}
+
+	// Don't return SMTP / database details to the caller.
+	console.error(error);
+	context.response.status = 500;
+	context.response.body = { message: 'Unable to send invite' };
+};
 
 const router = new Router();
 router
@@ -48,85 +69,68 @@ router
 			context.response.body = { message: error.message };
 		}
 	})
+	// The three routes below send email from our domain, so the request body is
+	// only trusted for *ids*: the caller must be a signed-in owner of the group,
+	// the recipient must really have been invited to it, and every name/address
+	// used in the email comes from the database (see authorize.ts). Sending is
+	// rate limited (see limit.ts).
 	.post('/invite/internal', async (context) => {
 		try {
-			// Note: request body will be streamed to the function as chunks, set limit to 0 to fully read it.
-			const result = context.request.body({ type: 'json', limit: 0 });
-			const body = await result.value;
-			const group = body.group;
-			const user = body.user;
-			const invited_by = body.invited_by;
+			const body = await readBody(context);
+			const { group, callerId, invitedBy } = await authorizeGroupOwner(supabase, context.request, body?.group?.id);
+			const recipient = await getMember(supabase, group.id, body?.user?.user_id);
+			if (!recipient.invite) throw new HttpError(403, 'User has no pending invite');
 
-			console.log(`Inviting...`, { user: user, group: group });
+			if (recipient.profile.email_invites) {
+				const html = template(internal, { full_name: fullName(recipient.profile), invited_by: invitedBy, group_name: group.name });
 
-			const { data: profile } = await supabase.from('profiles').select('*').eq('user_id', user.user_id).single();
-			if (profile.email_invites && !DEV_MODE) {
-				const html = template(internal, { full_name: `${user.first_name} ${user.last_name}`, invited_by: invited_by, group_name: group.name });
-
-				const token = await getToken();
-				const res = await sendEmail(token, {
-					from: 'noreply@giftamizer.com',
-					fromName: 'Giftamizer',
-					to: user.email,
+				const res = await sendLimitedEmail(supabase, callerId, {
+					to: recipient.profile.email,
 					subject: 'Giftamizer Invite',
 					body: html,
 				});
-				console.log('Send internal invite: ', res.status, res.statusText);
+				console.log('Send internal invite: ', res);
 			}
 
 			context.response.body = 'ok';
 		} catch (error) {
-			console.log(error);
-			context.response.status = 500;
-			context.response.body = error.message;
+			handleError(context, error);
 		}
 	})
 	.post('/invite/external', async (context) => {
 		try {
-			// Note: request body will be streamed to the function as chunks, set limit to 0 to fully read it.
-			const result = context.request.body({ type: 'json', limit: 0 });
-			const body = await result.value;
-			const group = body.group;
-			const user = body.user;
-			const invited_by = body.invited_by;
-			console.log(`Inviting...`, { user: user, group: group });
+			const body = await readBody(context);
+			const { group, callerId, invitedBy } = await authorizeGroupOwner(supabase, context.request, body?.group?.id);
+			const email = await getExternalInviteEmail(supabase, group.id, body?.user?.email);
 
-			const html = template(external, { invited_by: invited_by, group_name: group.name });
+			const html = template(external, { invited_by: invitedBy, group_name: group.name });
 
-			if (!DEV_MODE) {
-				const token = await getToken();
-				const res = await sendEmail(token, {
-					from: 'noreply@giftamizer.com',
-					fromName: 'Giftamizer',
-					to: user.email,
-					subject: 'Welcome to Giftamizer!',
-					body: html,
-				});
-				console.log('Send external invite: ', res.status, res.statusText);
-			}
+			const res = await sendLimitedEmail(supabase, callerId, {
+				to: email,
+				subject: 'Welcome to Giftamizer!',
+				body: html,
+			});
+			console.log('Send external invite: ', res);
 
 			context.response.body = 'ok';
 		} catch (error) {
-			console.log(error);
-			context.response.status = 500;
-			context.response.body = error.message;
+			handleError(context, error);
 		}
 	})
 	.post('/invite/secret-santa', async (context) => {
 		try {
-			// Note: request body will be streamed to the function as chunks, set limit to 0 to fully read it.
-			const result = context.request.body({ type: 'json', limit: 0 });
-			const body = await result.value;
-			const group = body.group;
-			const user = body.user;
-			const invited_by = body.invited_by;
-
-			console.log(`Inviting...`, { user: user, group: group });
+			const body = await readBody(context);
+			const { group, callerId, invitedBy } = await authorizeGroupOwner(supabase, context.request, body?.group?.id);
+			const recipient = await getMember(supabase, group.id, body?.user?.user_id);
+			const drawing = group.secret_santa?.drawing ?? {};
+			if (group.secret_santa?.status !== 'on' || !Object.hasOwn(drawing, recipient.user_id)) {
+				throw new HttpError(403, 'User is not in an active Secret Santa');
+			}
 
 			// send in app notification
 			const { error: notificationError } = await supabase.from('notifications').insert([
 				{
-					user_id: user.user_id,
+					user_id: recipient.user_id,
 					title: `${group.name} Secret Santa`,
 					body: 'You have been added to a Secret Santa!',
 					icon: 'gift',
@@ -136,26 +140,20 @@ router
 			if (notificationError) console.log('Secret santa notification error: ', notificationError);
 
 			// send email
-			const { data: profile } = await supabase.from('profiles').select('*').eq('user_id', user.user_id).single();
-			if (profile.email_invites && !DEV_MODE) {
-				const html = template(secretSanta, { full_name: `${user.profile.first_name} ${user.profile.last_name}`, invited_by: invited_by, group_name: group.name, group_id: group.id });
+			if (recipient.profile.email_invites) {
+				const html = template(secretSanta, { full_name: fullName(recipient.profile), invited_by: invitedBy, group_name: group.name, group_id: group.id });
 
-				const token = await getToken();
-				const res = await sendEmail(token, {
-					from: 'noreply@giftamizer.com',
-					fromName: 'Giftamizer',
-					to: user.profile.email,
+				const res = await sendLimitedEmail(supabase, callerId, {
+					to: recipient.profile.email,
 					subject: 'Secret Santa',
 					body: html,
 				});
-				console.log('Send secret santa invite: ', res.status, res.statusText);
+				console.log('Send secret santa invite: ', res);
 			}
 
 			context.response.body = 'ok';
 		} catch (error) {
-			console.log(error);
-			context.response.status = 500;
-			context.response.body = error.message;
+			handleError(context, error);
 		}
 	});
 

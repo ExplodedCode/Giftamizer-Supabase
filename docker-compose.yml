@@ -419,6 +419,17 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       GITHUB_OWNER: ${GITHUB_OWNER}
       GITHUB_REPO: ${GITHUB_REPO}
+      # invite function (group / Secret Santa emails) - max emails per rolling 24 hours
+      INVITE_EMAIL_SENDER_LIMIT: ${INVITE_EMAIL_SENDER_LIMIT:-50}
+      INVITE_EMAIL_RECIPIENT_LIMIT: ${INVITE_EMAIL_RECIPIENT_LIMIT:-5}
+      INVITE_EMAIL_TOTAL_LIMIT: ${INVITE_EMAIL_TOTAL_LIMIT:-200}
+      # invite function - same SMTP settings as `auth`
+      SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_SENDER_NAME: ${SMTP_SENDER_NAME}
     command:
       [
         "start",
@@ -472,6 +483,7 @@ services:
       - ./volumes/db/giftamizer/0015-item-images-cleanup.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0015-item-images-cleanup.sql:Z
       - ./volumes/db/giftamizer/0016-activity-feed.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0016-activity-feed.sql:Z
       - ./volumes/db/giftamizer/0017-membership-policy-fixes.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0017-membership-policy-fixes.sql:Z
+      - ./volumes/db/giftamizer/0018-invite-email-limits.sql:/docker-entrypoint-initdb.d/init-scripts/zzzz-0018-invite-email-limits.sql:Z
 
       # Use named volume to persist pgsodium decryption key between restarts
       - db-config:/etc/postgresql-custom
@@ -513,7 +525,7 @@ services:
         "custom.service_role_key=${SERVICE_ROLE_KEY}"
       ]
 
-  # Automated Postgres backups. Opt-in via COMPOSE_PROFILES (e.g. giftamizer-extras,backup)
+  # Automated Postgres backups. Opt-in via COMPOSE_PROFILES (e.g. backup)
   # since local dev throwaway databases don't need scheduled backups.
   db-backup:
     container_name: supabase-db-backup
@@ -549,7 +561,7 @@ services:
   # `rclone config` (see README). db-backup alone only protects against DB
   # corruption, not host/disk loss - this is what actually gets a copy off
   # the machine. Opt-in via COMPOSE_PROFILES (e.g.
-  # giftamizer-extras,backup,restic-backup); enable alongside the "backup"
+  # backup,restic-backup); enable alongside the "backup"
   # profile so ./backups has something to read.
   restic-backup:
     container_name: supabase-restic-backup
@@ -682,36 +694,7 @@ services:
 
 
 
-  # Giftamizer-specific services below are opt-in for local dev.
-  # Set COMPOSE_PROFILES=giftamizer-extras in .env to start them (always-on in production).
-  smtp2graph:
-    container_name: giftamizer-smtp2graph
-    image: evantrow/smtp2graph:latest@sha256:01adf4ae92ddf7fe04125c2e5de52b427215f2fc76e96725a7a03a180e249c11
-    restart: unless-stopped
-    logging: *default-logging
-    profiles: ["giftamizer-extras"]
-    healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "465"]
-      timeout: 5s
-      interval: 5s
-      retries: 5
-    ports:
-      # NOTE: confirmed by direct container inspection that this image always listens
-      # for SMTP on 465 (implicit TLS), never on plain 25, regardless of DEV_MODE or
-      # other env vars. The container-side "25" below is not actually listened on.
-      # GOTRUE_SMTP_PORT / SMTP_PORT in .env should point at 465, not 25, for the
-      # `auth` service to actually reach this container - worth double-checking that
-      # prod auth emails (signup/reset) are actually being delivered today.
-      - ${SMTP2GRAPH_HTTP_PORT}:8080
-      - ${SMTP2GRAPH_SMTP_PORT}:25
-    environment:
-      CLIENT_ID: ${SMTP2GRAPH_CLIENT_ID}
-      CLIENT_SECRET: ${SMTP2GRAPH_CLIENT_SECRET}
-      TENANT_ID: ${SMTP2GRAPH_TENANT_ID}
-      DEV_MODE: ${SMTP2GRAPH_DEV_MODE}
-      WEB_SERVER: ${SMTP2GRAPH_WEB_SERVER}
-      WEB_SERVER_MESSAGE_LIMIT: ${SMTP2GRAPH_WEB_SERVER_MESSAGE_LIMIT}
-
+  # Giftamizer-specific service
   urlmetadata:
     container_name: giftamizer-urlmetadata
     image: explodedcode/urlmetadata:latest@sha256:cdd26d3af0d660a1faef5a6ff9782ca1711524c6fbcc7de3d725e999e8651675

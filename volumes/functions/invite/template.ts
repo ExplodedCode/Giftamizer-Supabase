@@ -1,11 +1,9 @@
-const template = (template: string, data: any) => {
-	for (const property in data) {
-		console.log(`${property}: ${data[property]}`);
+const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
-		template = template.replaceAll(`{${property}}`, data[property]);
-	}
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
 
-	return template;
-};
+// Replaces {property} placeholders with HTML-escaped values.
+const template = (template: string, data: Record<string, string>) =>
+	template.replace(/\{(\w+)\}/g, (placeholder, property) => (Object.hasOwn(data, property) ? escapeHtml(data[property]) : placeholder));
 
 export default template;

@@ -17,6 +17,10 @@ services:
     environment:
       - GOTRUE_SMTP_USER=
       - GOTRUE_SMTP_PASS=
+  functions:
+    environment:
+      - SMTP_USER=
+      - SMTP_PASS=
   meta:
     ports:
       - 5555:8080
