@@ -1,0 +1,170 @@
+// Shared look of every Giftamizer email: the invites (emails.js) and the auth emails
+// (scripts/build-emails.mjs).
+//
+// It follows the app (Giftamizer/src/index.css): emerald primary, zinc
+// grays, 12px button corners, 16px card corners, Inter, and the app's dark theme
+// where the mail client supports it. The images are part of the frontend
+// (Giftamizer/public/images/email), so deploy it first when one is added.
+//
+// Don't rely on Outlook's conditional comments: the auth service drops every HTML
+// comment. Outlook ignores `@media screen`, so what it must not see goes in there.
+//
+// After a change, run `node scripts/build-emails.mjs`.
+
+export const SITE = 'https://giftamizer.com';
+const IMAGES = `${SITE}/images/email`;
+
+// Inter comes from `@media screen`: named here, Outlook would show Times New Roman instead.
+const FONT = `font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;`;
+
+// Paragraph of body text.
+export const text = (html) => `<p class="fg" style="margin: 0 0 16px; ${FONT} font-size: 16px; line-height: 26px; color: #3f3f46;">${html}</p>`;
+
+// Primary button, as `<Button size='lg'>` in the app.
+export const button = (label, url) => `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 24px auto 0;">
+										<tr>
+											<td class="btn" align="center" bgcolor="#059669" style="border-radius: 12px; background-color: #059669; mso-padding-alt: 13px 28px;">
+												<a class="btn-a" href="${url}" target="_blank" style="display: inline-block; padding: 13px 28px; border-radius: 12px; ${FONT} font-size: 15px; line-height: 20px; font-weight: 500; color: #ffffff; text-decoration: none;">${label}</a>
+											</td>
+										</tr>
+									</table>`;
+
+const headerRow = (image) => `									<tr>
+										<td bgcolor="#059669" style="background-color: #059669; border-radius: 15px 15px 0 0; font-size: 0; line-height: 0;">
+											<a href="${SITE}" target="_blank" style="text-decoration: none;"><img src="${IMAGES}/${image}" width="598" alt="" style="display: block; width: 100%; max-width: 598px; height: auto; border-radius: 15px 15px 0 0;" /></a>
+										</td>
+									</tr>
+`;
+
+const iconImage = (image) => `<img src="${IMAGES}/${image}" width="48" height="48" alt="" style="display: inline-block; width: 48px; height: 48px;" />`;
+
+const badgePill = (label) =>
+	`<span class="badge" style="display: inline-block; padding: 4px 12px; border: 1px solid #c1e5d9; border-radius: 999px; background-color: #e6f5f0; ${FONT} font-size: 12px; line-height: 16px; font-weight: 500; color: #059669;">${label}</span>`;
+
+// `preview` is the line mail clients show next to the subject. The card can open with a
+// picture (`header`), and has an `icon` or a `badge` above its heading.
+export const layout = ({ title, preview, header, icon, badge, heading, body }) => `<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+		<meta name="x-apple-disable-message-reformatting" />
+		<meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no" />
+		<meta name="color-scheme" content="light dark" />
+		<meta name="supported-color-schemes" content="light dark" />
+		<title>${title}</title>
+		<!--[if mso]>
+		<xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
+		<![endif]-->
+		<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+		<style>
+			:root { color-scheme: light dark; supported-color-schemes: light dark; }
+			body { margin: 0; padding: 0; width: 100%; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+			table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+			img { border: 0; outline: none; text-decoration: none; -ms-interpolation-mode: bicubic; }
+			a[x-apple-data-detectors] { color: inherit !important; text-decoration: none !important; font: inherit !important; }
+			.btn:hover, .btn-a:hover { background-color: #047857 !important; }
+			@media screen {
+				body, table, td, p, a, span, strong, h1, h2 { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important; }
+				.container { width: 100% !important; }
+			}
+			@media only screen and (max-width: 600px) {
+				.outer { padding: 16px 12px 32px !important; }
+				.content { padding: 28px 22px 32px !important; }
+				.heading { font-size: 24px !important; line-height: 30px !important; }
+			}
+			@media (prefers-color-scheme: dark) {
+				.bg { background-color: #09090b !important; }
+				.card { background-color: #18181b !important; border-color: #27272a !important; }
+				.title { color: #fafafa !important; }
+				.fg { color: #d4d4d8 !important; }
+				.muted { color: #a1a1aa !important; }
+				.accent { color: #34d399 !important; }
+				.badge { background-color: #0c2f25 !important; border-color: #14513d !important; color: #34d399 !important; }
+				.outline { border-color: #3f3f46 !important; }
+				.btn { background-color: #10b981 !important; }
+				.btn-a { color: #022c22 !important; }
+				.btn:hover, .btn-a:hover { background-color: #34d399 !important; }
+			}
+		</style>
+	</head>
+	<body class="bg" bgcolor="#fafafa" style="margin: 0; padding: 0; background-color: #fafafa;">
+		<div style="display: none; max-height: 0; max-width: 0; overflow: hidden; opacity: 0; mso-hide: all; font-size: 1px; line-height: 1px; color: #fafafa;">${preview}${'&#847;&zwnj;&nbsp;'.repeat(60)}</div>
+
+		<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#fafafa" style="background-color: #fafafa;">
+			<tr>
+				<td class="outer" align="center" style="padding: 24px 16px 40px;">
+					<table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px;">
+						<!-- Header -->
+						<tr>
+							<td style="padding: 0 4px 16px;">
+								<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+									<tr>
+										<td align="left" valign="middle">
+											<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+												<tr>
+													<td valign="middle" style="padding-right: 8px;">
+														<a href="${SITE}" target="_blank" style="text-decoration: none;"><img src="${IMAGES}/icon.png" width="32" height="32" alt="" style="display: block; width: 32px; height: 32px;" /></a>
+													</td>
+													<td valign="middle">
+														<a class="title" href="${SITE}" target="_blank" style="${FONT} font-size: 21px; line-height: 32px; font-weight: 600; letter-spacing: -0.5px; color: #09090b; text-decoration: none;">Giftamizer</a>
+													</td>
+												</tr>
+											</table>
+										</td>
+										<td align="right" valign="middle">
+											<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+												<tr>
+													<td class="outline" align="center" style="border: 1px solid #e4e4e7; border-radius: 12px; mso-padding-alt: 8px 16px;">
+														<a class="title" href="${SITE}/signin" target="_blank" style="display: inline-block; padding: 8px 16px; ${FONT} font-size: 14px; line-height: 18px; font-weight: 500; color: #09090b; text-decoration: none;">Sign In</a>
+													</td>
+												</tr>
+											</table>
+										</td>
+									</tr>
+								</table>
+							</td>
+						</tr>
+
+						<!-- Card -->
+						<tr>
+							<td class="card" bgcolor="#ffffff" style="background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; overflow: hidden;">
+								<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+${header ? headerRow(header) : ''}									<tr>
+										<td class="content" align="center" style="padding: 36px 48px 40px; text-align: center;">
+											${icon ? iconImage(icon) : badgePill(badge)}
+											<h1 class="heading title" style="margin: 16px 0 20px; ${FONT} font-size: 30px; line-height: 36px; font-weight: 700; letter-spacing: -0.75px; color: #09090b;">${heading}</h1>
+									${body}
+										</td>
+									</tr>
+								</table>
+							</td>
+						</tr>
+
+						<!-- Footer -->
+						<tr>
+							<td align="center" style="padding: 28px 16px 0; text-align: center;">
+								<p class="muted" style="margin: 0 0 8px; ${FONT} font-size: 14px; line-height: 20px; color: #71717a;">An easier way to organize your gifts.</p>
+								<p class="muted" style="margin: 0; ${FONT} font-size: 12px; line-height: 18px; color: #71717a;"><a class="muted" href="${SITE}" target="_blank" style="color: #71717a; text-decoration: underline;">Giftamizer</a> &nbsp;&middot;&nbsp; <a class="muted" href="${SITE}/policy" target="_blank" style="color: #71717a; text-decoration: underline;">Privacy</a></p>
+							</td>
+						</tr>
+					</table>
+				</td>
+			</tr>
+		</table>
+	</body>
+</html>
+`;
+
+export const accent = (html) => `<span class="accent" style="color: #059669; white-space: nowrap;">${html}</span>`;
+export const bold = (html) => `<strong class="title" style="font-weight: 600; color: #09090b;">${html}</strong>`;
+
+// Small print under the button.
+export const note = (html) => `<p class="muted" style="margin: 24px 0 0; ${FONT} font-size: 13px; line-height: 20px; color: #71717a;">${html}</p>`;
+
+// The button's link in full, for clients that don't show buttons.
+export const plainLink = (url) =>
+	note(
+		`Button not working? Copy this link into your browser:<br /><a class="accent" href="${url}" target="_blank" style="color: #059669; text-decoration: underline; word-break: break-all;">${url}</a>`
+	);
