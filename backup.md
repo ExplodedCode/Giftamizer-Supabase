@@ -69,7 +69,8 @@ dumps live on the same disk) and it does **not** include uploaded files.
 | Profile | `restic-backup` (also enable `backup`, so `./backups` has something to read) |
 | What | Encrypted, deduplicated restic snapshots of `./backups` (the dumps) **and** `./volumes/storage` (uploaded images/avatars), tagged `giftamizer` |
 | Local repo | `./volumes/restic-repo` (encrypted with `RESTIC_PASSWORD`) |
-| Offsite | After every successful backup/prune, `rclone sync` mirrors the local repo to `RCLONE_REMOTE` - any rclone backend (B2, R2, S3, SFTP, ...) |
+| Offsite | After every successful backup/prune, `scripts/restic-offsite-sync.sh` mirrors the local repo to `RCLONE_REMOTE` with `rclone sync` - any rclone backend (B2, R2, S3, SFTP, ...). It tries 3 times a minute apart, and refuses to sync if the remote holds a *different* restic repository (so a freshly initialised repo can't wipe the offsite snapshots). |
+| Health | `supabase-restic-backup` is `unhealthy` when the last successful backup + sync is older than `RESTIC_HEALTH_MAX_AGE_MINUTES` (default 26 h). Docker only shows this; nothing sends an alert. |
 | When | `RESTIC_BACKUP_CRON` (default `0 30 3 * * *`, 03:30) and `RESTIC_PRUNE_CRON` (default `0 0 4 * * *`, 04:00), in the `TZ` set in `.env` (UTC if unset). Also once on container start. |
 | Retention | `RESTIC_KEEP_DAYS` / `_WEEKS` / `_MONTHS` (default 7 / 4 / 6 snapshots) |
 
@@ -126,7 +127,9 @@ Apply changes with `docker compose up -d db-backup`.
      mazzolino/restic:1.8.2 config
    ```
 
-   Use a bucket-scoped key. Avoid backends that need a browser sign-in
+   Use a bucket-scoped key. Backends that log in with the account password
+   (MEGA) can't be scoped: anyone who reads `rclone.conf` can delete everything
+   in that account, so give it an account used for nothing else. Avoid backends that need a browser sign-in
    (Google Drive, OneDrive) on a headless server. This writes
    `volumes/rclone/rclone.conf` (root-owned, mode 600, gitignored).
 
@@ -175,9 +178,10 @@ docker logs --tail 40 supabase-restic-backup
 docker logs --tail 15 supabase-restic-prune
 ```
 
-Healthy output: `supabase-db-backup ... (healthy)`, the last `db-backup` log line
+Healthy output: `supabase-db-backup` and `supabase-restic-backup` both
+`(healthy)`, the last `db-backup` log line
 is `SQL backup created successfully`, and the `restic-backup` log has
-`Backup successful` with no `Fatal:` / `error` lines after it.
+`Backup successful` followed by `offsite-sync: synced to ...`, dated last night.
 
 ### Helper functions for restic and rclone
 
@@ -312,9 +316,10 @@ cp backups/last/postgres-2*.sql.gz ~/        # then copy both files off the serv
 
 ## Restore
 
-> Practise a restore before you need one. The database procedure below has not
-> been run end-to-end on production yet - do a test restore (step A) and
-> confirm the row counts match before relying on it.
+> Practise a restore before you need one. Pulling from offsite and step A were
+> rehearsed on 2026-11-25: every table matched the dump's row counts, and every
+> restored file that still existed live was identical. Step D (a full stack on a
+> new host) has not been rehearsed.
 
 ### Get the backup files
 
@@ -326,8 +331,8 @@ cp backups/last/postgres-2*.sql.gz ~/        # then copy both files off the serv
 snapshot and writes one archive containing the dump and the storage files:
 
 ```bash
-./scripts/pull-offsite-backup.sh              # latest snapshot -> ~/giftamizer-backup-<timestamp>.tar.gz
-./scripts/pull-offsite-backup.sh <snapshot-id> /some/dir
+bash scripts/pull-offsite-backup.sh              # latest snapshot -> ~/giftamizer-backup-<timestamp>.tar.gz
+bash scripts/pull-offsite-backup.sh <snapshot-id> /some/dir
 ```
 
 Needs `.env` (`RCLONE_REMOTE`, `RESTIC_PASSWORD`) and `volumes/rclone/rclone.conf`
@@ -363,18 +368,28 @@ the dumps contain `\restrict` lines that older clients reject):
 
 ```bash
 DUMP=backups/last/postgres-latest.sql.gz        # or any other dump
-docker run -d --name pg-restore-test -e POSTGRES_PASSWORD=scratch supabase/postgres:17.6.1.136
+docker run -d --name pg-restore-test --network none -e POSTGRES_PASSWORD=scratch supabase/postgres:17.6.1.136
 until docker exec pg-restore-test pg_isready -U supabase_admin -q; do sleep 2; done; sleep 10   # first-boot init
-zcat "$DUMP" | docker exec -i pg-restore-test psql -U supabase_admin -d postgres -q
-docker exec pg-restore-test psql -U supabase_admin -d postgres -c 'select count(*) from public.items'
+docker exec pg-restore-test psql -U supabase_admin -d postgres -q \
+  -c 'create role supabase_realtime_admin nologin noinherit' \
+  -c 'create role supabase_functions_admin nologin noinherit' \
+  -c 'create database restore template template0'
+zcat "$DUMP" | docker exec -i pg-restore-test psql -U supabase_admin -d restore -q 2>&1 | grep ERROR   # expect no output
+docker exec pg-restore-test psql -U supabase_admin -d restore -c 'select (select count(*) from auth.users) users, (select count(*) from public.items) items'
 ```
 
-The dumps have no `DROP` statements, so objects the image already creates may
-report "already exists" errors; the data (`COPY` blocks) is what matters.
-Compare counts with the live DB:
+- **Restore into the new, empty `restore` database, not `postgres`.** The image
+  pre-creates an older `auth` schema in `postgres`, and the dump's `auth` tables
+  collide with it: `auth.users` ends up with **0 rows** while `public` looks fine.
+- The two roles are created by the running stack, not by the image. Without them
+  the data still loads, but statements that mention them fail.
+- `--network none` keeps the restored triggers (which call the Storage API when
+  rows are deleted) from reaching anything live.
+
+Compare counts with the live DB (small differences since the dump are normal):
 
 ```bash
-docker exec supabase-db psql -U postgres -tAc 'select count(*) from public.items'
+docker exec supabase-db psql -U postgres -c 'select (select count(*) from auth.users) users, (select count(*) from public.items) items'
 ```
 
 Remove the scratch container when done: `docker rm -f pg-restore-test`.
@@ -385,7 +400,7 @@ Extract only what you need from the scratch database (A), then load it live
 without overwriting existing rows:
 
 ```bash
-docker exec pg-restore-test pg_dump -U supabase_admin -d postgres \
+docker exec pg-restore-test pg_dump -U supabase_admin -d restore \
   --data-only --column-inserts --on-conflict-do-nothing -t public.items > items-recovered.sql
 docker exec -i supabase-db psql -U postgres -d postgres < items-recovered.sql
 ```
@@ -409,14 +424,22 @@ docker compose start storage imgproxy
 
 1. Install Docker, clone this repo to `/giftamizer/backend`, restore `.env`
    (same `JWT_SECRET`, `ANON_KEY`, `SERVICE_ROLE_KEY`) and `volumes/rclone/rclone.conf`
-   from your off-server copies.
-2. Run `scripts/pull-offsite-backup.sh` and unpack the archive.
+   from your off-server copies. **Take `restic-backup` out of `COMPOSE_PROFILES`
+   before starting anything**, so no new repository is created and no backup of
+   the half-restored stack is taken.
+2. Run `bash scripts/pull-offsite-backup.sh` and unpack the archive.
 3. Restore the storage files (C) and the database dump into an empty database
    (the dump is a plain, non-`--clean` dump of the whole `postgres` database, so
    it needs an empty target rather than one already initialised by the stack's
-   init scripts). This step is not scripted or rehearsed yet - test it on a
-   scratch machine and add the exact steps here once it works.
-4. Start the stack, then re-enable backups (`COMPOSE_PROFILES`, step "Offsite" above).
+   init scripts). Step A shows the dump loads cleanly into an empty `template0`
+   database once the two roles exist; using that as the stack's `postgres`
+   database is not scripted or rehearsed yet - test it on a scratch machine and
+   add the exact steps here once it works.
+4. Start the stack without `restic-backup` and check it.
+5. Pull the offsite repository into the empty `volumes/restic-repo` (the `sync
+   "$REMOTE" /data/restic-repo` command under "Get the backup files") so the
+   snapshot history continues, then re-enable backups (`COMPOSE_PROFILES`, step
+   "Offsite" above).
 
 ## Troubleshooting
 
@@ -428,7 +451,9 @@ docker compose start storage imgproxy
 | `unknown command "restic" for "restic"` | You passed `restic` after the image name. The image already runs restic - pass only its arguments (`snapshots`, `restore ...`). |
 | `Fatal: repository does not exist ... /mnt/restic` | `RESTIC_REPOSITORY` wasn't set on that `docker run`, so the entrypoint looked at its default. Use the helper functions above. |
 | `unable to create lock` / `repository is already locked` | A backup/prune is running, or one was killed. Wait, then `restic unlock` if the lock is stale. |
-| `restic-backup` log ends after "Backup successful" with an rclone error | The offsite sync failed (credentials, quota, network). Test: `rcl lsd "$REMOTE"`. The local repo is fine; it will sync on the next run. |
+| `offsite-sync: FAILED after 3 attempts`, or `supabase-restic-backup` is `unhealthy` | The offsite sync failed (credentials, quota, network). Test: `rcl lsd "$REMOTE"`. The local snapshot was still taken, and the next run syncs it. Retry now with `docker compose restart restic-backup`. |
+| `Backup already running, skipping backup` every night | A stale `/run/lock/backup.lock` left by a run that died. `POST_COMMANDS_EXIT` in `docker-compose.yml` removes it after a failed sync; if it still happens, `docker compose restart restic-backup` clears it. |
+| `offsite-sync: REFUSED ... different restic repository` | The local repo was re-created (empty `volumes/restic-repo`) while the remote still has the old one. To keep the old snapshots, stop both restic containers, empty `volumes/restic-repo` and pull the remote into it. To start over, point `RCLONE_REMOTE` at a new path. |
 | `RCLONE_REMOTE` empty / sync errors immediately | `RCLONE_REMOTE` is missing from `.env`. Add it and `docker compose up -d restic-backup restic-prune`. |
 | Disk filling up | `du -sh backups volumes/restic-repo volumes/storage`; lower `*_KEEP_*` values or confirm `restic-prune` is running. |
 | Restic times look off by hours | They use `TZ` from `.env`; the dump job always uses UTC. |
