@@ -104,23 +104,7 @@ extras" below.
 cd /giftamizer/backend
 chmod +x run.sh reset.sh utils/*.sh scripts/*.sh
 ./run.sh prod up                    # core stack + whatever's in COMPOSE_PROFILES
-docker compose up -d urlmetadata    # see note below
 ```
-
-**Why `urlmetadata` (if you want it) is started separately:** `urlmetadata`
-and `smtp2graph` share the same `giftamizer-extras` Compose profile.
-Activating `giftamizer-extras` in `COMPOSE_PROFILES` starts *both* — if you
-want link-preview metadata (`urlmetadata`) but haven't set up an Azure AD
-app registration for the email relay (`smtp2graph`), start `urlmetadata` by
-naming it explicitly on the command line instead. Compose allows starting a
-profiled service by name even when its profile isn't active in
-`COMPOSE_PROFILES`; this creates and runs just that one service, and
-`smtp2graph` is never created.
-
-Consequence: a bare `docker compose up -d` (no service names) won't restart
-`urlmetadata` if it's ever removed — always include it by name, or add
-`giftamizer-extras` to `COMPOSE_PROFILES` once/if `smtp2graph` credentials
-are added too (which will also start `smtp2graph`).
 
 ### Verifying
 
@@ -255,20 +239,45 @@ file-mode-only changes on a few scripts (`git config core.fileMode false`).
 Leave `GITHUB_TOKEN` blank to disable — the frontend hides the Support nav
 item automatically when it's unset.
 
-### smtp2graph (SMTP → Microsoft Graph relay)
+### Email (Brevo SMTP)
 
-Needs an Azure AD app registration (`SMTP2GRAPH_CLIENT_ID` /
-`SMTP2GRAPH_CLIENT_SECRET` / `SMTP2GRAPH_TENANT_ID` in `.env`) with
-`Mail.Send` on a mailbox. Enable by adding `giftamizer-extras` to
-`COMPOSE_PROFILES` (this also starts `urlmetadata` if it wasn't already
-running — see the note above).
+Auth emails (signup confirmation, password reset) and the `invite` edge
+function (group and Secret Santa invites) both send through the `SMTP_*`
+settings in `.env`:
 
-### Email / SMTP in general
+```bash
+SMTP_ADMIN_EMAIL=no-reply@giftamizer.com
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_USER=<Brevo SMTP login>
+SMTP_PASS=<Brevo SMTP key>
+SMTP_SENDER_NAME=Giftamizer
+```
 
-If you don't configure real SMTP (or `smtp2graph`) at all,
+`SMTP_ADMIN_EMAIL` is the From address: it (or its domain) must be verified as
+a sender in Brevo, with Brevo's DKIM/DMARC records in DNS. Apply with:
+
+```bash
+docker compose up -d auth functions
+```
+
+Invite emails are rate limited over a rolling 24 hours:
+`INVITE_EMAIL_SENDER_LIMIT` (per user, default 50),
+`INVITE_EMAIL_RECIPIENT_LIMIT` (per address, default 5) and
+`INVITE_EMAIL_TOTAL_LIMIT` (everyone together, default 200). Keep the total
+below your Brevo plan's daily quota: auth emails share that quota but not these
+limits. This needs `0018-invite-email-limits.sql`; without it no invite emails
+are sent.
+
+If you don't configure real SMTP at all,
 `ENABLE_EMAIL_AUTOCONFIRM=true` (the `.env.example` default) means sign-up
 still works without a confirmation click. Password-reset and invite emails
 will simply fail to send until real SMTP credentials are in place.
+
+**Upgrading from the old smtp2graph relay:** set the values above, delete the
+`SMTP2GRAPH_*` lines and remove `giftamizer-extras` from `COMPOSE_PROFILES` in
+`.env`, then remove the leftover container with
+`docker rm -f giftamizer-smtp2graph`.
 
 ## Frontend
 
@@ -329,10 +338,6 @@ docker compose pull
 docker compose up -d
 ```
 
-Pick a host port other than `8080` if you might ever enable `smtp2graph`
-(its default `SMTP2GRAPH_HTTP_PORT` is 8080) — `8081` avoids that
-collision.
-
 ## Updating
 
 **Backend** (non-schema changes — new image versions, compose config, etc.):
@@ -341,7 +346,6 @@ cd /giftamizer/backend
 git pull
 docker compose pull
 docker compose up -d
-docker compose up -d urlmetadata   # if you're using the explicit-start approach above
 ```
 Schema changes ship as new `volumes/db/giftamizer/00NN-*.sql` files upstream
 and must be applied to the running prod DB by hand (via Studio's SQL editor
@@ -523,7 +527,7 @@ Worth checking for before assuming a 100% successful login rate post-migration.
 - [ ] Set up offsite backup (`rclone config` + `restic-backup` profile) if
       you haven't already.
 - [ ] Add a `GITHUB_TOKEN` if you want the Support page's issue tracker.
-- [ ] Add real SMTP (or `smtp2graph` + Azure AD creds) before relying on
+- [ ] Add real SMTP (see "Email (Brevo SMTP)") before relying on
       password-reset/invite emails, or before migrated users with legacy
       password hashes need to recover access.
 - [ ] Consider firewalling ports 5432/6543 (direct Postgres) to just the
@@ -539,12 +543,9 @@ already running:
    service's resolved config against what's running and recreates any
    container whose environment actually changed; services with no relevant
    change are left alone (no unnecessary restarts).
-3. If a service was started outside the normal profile flow (like
-   `urlmetadata` above), you may need to name it explicitly:
-   `docker compose up -d urlmetadata`.
-4. To force a specific service to pick up a change you're not sure Compose
+3. To force a specific service to pick up a change you're not sure Compose
    noticed, add `--force-recreate`: `docker compose up -d --force-recreate <service>`.
-5. Verify with `docker compose ps` and `docker compose logs <service>`.
+4. Verify with `docker compose ps` and `docker compose logs <service>`.
 
 A few variables need more than a routine restart:
 
@@ -565,8 +566,7 @@ A few variables need more than a routine restart:
   stop the now-out-of-scope container either; `docker compose up -d` only
   reconciles what's currently in scope. To actually stop a service you just
   removed from `COMPOSE_PROFILES`, stop it explicitly:
-  `docker compose stop <service>`. Remember the `urlmetadata`/`smtp2graph`
-  shared-profile quirk described earlier if you touch `giftamizer-extras`.
+  `docker compose stop <service>`.
 - **`KONG_HTTP_PORT` / `KONG_HTTPS_PORT`** (or any other host-port
   variable) — `docker compose up -d` will recreate the container with the
   new port binding, but you'll also need to update any reverse proxy

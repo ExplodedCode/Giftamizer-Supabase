@@ -54,7 +54,7 @@ see `.env.example` for the format.
 This starts the full Supabase stack plus dev conveniences:
 
 - **Studio / API gateway** — http://localhost:8000 (basic auth: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` from `.env`). Every route other than Studio's own catch-all (`/auth/v1`, `/rest/v1`, `/storage/v1`, etc.) is proxied through Kong here — this repo doesn't serve the Giftamizer app itself.
-- **Inbucket (fake mail server)** — http://localhost:9000, catches all auth emails so you don't need real SMTP locally
+- **Inbucket (fake mail server)** — http://localhost:9000, catches all auth and invite emails so you don't need real SMTP locally
 - **Postgres Meta** — exposed on `localhost:5555` for direct DB introspection tools
 
 The Giftamizer frontend is a separate repo/process — see its
@@ -118,20 +118,6 @@ completely fresh:
 # or on Windows: .\reset.ps1
 ```
 
-### Giftamizer's extra services (optional)
-
-Production also runs two Giftamizer-specific containers: `smtp2graph`
-(SMTP-to-Microsoft-Graph email relay) and `urlmetadata` (link preview
-metadata). These are **not** started by default locally since they need
-Azure AD credentials. To opt in:
-
-```sh
-echo "COMPOSE_PROFILES=giftamizer-extras" >> .env
-./run.sh dev up
-```
-
-On Windows PowerShell: `Add-Content .env "COMPOSE_PROFILES=giftamizer-extras"`, then `.\run.ps1 dev up`.
-
 ### GitHub issue tracker (optional)
 
 The Support page's issue tracker is powered by the `github` edge function.
@@ -165,10 +151,10 @@ A `db-backup` service (`prodrigestivill/postgres-backup-local`) takes scheduled
 (gitignored). It's opt-in via the `backup` Compose profile:
 
 ```sh
-echo "COMPOSE_PROFILES=giftamizer-extras,backup" >> .env
+echo "COMPOSE_PROFILES=backup" >> .env
 ```
 
-On Windows PowerShell: `Add-Content .env "COMPOSE_PROFILES=giftamizer-extras,backup"`.
+On Windows PowerShell: `Add-Content .env "COMPOSE_PROFILES=backup"`.
 
 Tune the schedule/retention via `BACKUP_SCHEDULE`, `BACKUP_KEEP_DAYS`,
 `BACKUP_KEEP_WEEKS`, `BACKUP_KEEP_MONTHS` in `.env` (see `.env.example`).
@@ -193,10 +179,10 @@ Both are opt-in via the `restic-backup` Compose profile, and only useful
 alongside `backup` (so there's something in `./backups` for restic to pick up):
 
 ```sh
-echo "COMPOSE_PROFILES=giftamizer-extras,backup,restic-backup" >> .env
+echo "COMPOSE_PROFILES=backup,restic-backup" >> .env
 ```
 
-On Windows PowerShell: `Add-Content .env "COMPOSE_PROFILES=giftamizer-extras,backup,restic-backup"`.
+On Windows PowerShell: `Add-Content .env "COMPOSE_PROFILES=backup,restic-backup"`.
 
 Before starting them:
 
